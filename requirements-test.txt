@@ -1,0 +1,4 @@
+experta>=1.9.4
+pytest>=6.0.0
+pytest-cov>=2.0.0
+
