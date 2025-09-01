@@ -1,3 +1,5 @@
+// frontend/src/types/index.ts
+
 // Classification related types - Unified interface for all uses
 export interface ClassificationResult {
   id: number;
@@ -107,22 +109,22 @@ export interface DashboardUpdate {
 
 // System statistics types - Using ACTUAL backend model names
 export interface SystemStats {
-  TotalItems: number;
-  AccuracyRate: number;
-  AvgProcessingTime: number;
-  ClassificationBreakdown: { [key: string]: number };
-  OverrideRate: number;
-  ItemsToday: number;
-  ItemsThisWeek: number;
-  ItemsThisMonth: number;
-  LastClassification: Date | string;
-  HourlyBreakdown: HourlyStats[];
+  totalItems: number;
+  accuracyRate: number;
+  avgProcessingTime: number;
+  classificationBreakdown: { [key: string]: number };
+  overrideRate: number;
+  itemsToday: number;
+  itemsThisWeek: number;
+  itemsThisMonth: number;
+  lastClassification: Date | string;
+  hourlyBreakdown: HourlyStats[];
 }
 
 export interface HourlyStats {
-  Hour: Date | string;
-  Count: number;
-  AvgAccuracy: number;
+  hour: Date | string;
+  count: number;
+  avgAccuracy: number;
 }
 
 export interface DashboardStats {
@@ -159,20 +161,20 @@ export interface ClassificationTrend {
   organic: number;
 }
 
-// System health types - Using ACTUAL backend model names  
+// System health types - Using camelCase to match API response
 export interface SystemHealth {
-  Timestamp: Date | string;
-  CameraConnected: boolean;
-  ArduinoConnected: boolean;
-  CnnServiceHealthy: boolean;
-  ExpertSystemHealthy: boolean;
-  AvgProcessingTimeMs: number;
-  TotalItemsProcessed: number;
-  AccuracyRate: number;
-  ClassificationCounts: { [key: string]: number };
-  SystemUptime: number;
-  MemoryUsageMB: number;
-  CpuUsagePercent: number;
+  timestamp: Date | string;
+  cameraConnected: boolean;
+  arduinoConnected: boolean;
+  cnnServiceHealthy: boolean;
+  expertSystemHealthy: boolean;
+  avgProcessingTimeMs: number;
+  totalItemsProcessed: number;
+  accuracyRate: number;
+  classificationCounts: { [key: string]: number };
+  systemUptime: number;
+  memoryUsageMB: number;
+  cpuUsagePercent: number;
   isHealthy?: boolean; // Computed property for UI
 }
 

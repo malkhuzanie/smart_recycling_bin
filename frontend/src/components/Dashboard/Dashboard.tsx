@@ -196,9 +196,9 @@ const Dashboard: React.FC = () => {
                   CNN Service
                 </Typography>
                 <Chip
-                  label={health.CnnServiceHealthy ? 'Healthy' : 'Issues Detected'}
-                  color={getStatusColor(health.CnnServiceHealthy)}
-                  icon={health.CnnServiceHealthy ? <CheckCircleIcon /> : <WarningIcon />}
+                  label={health.cnnServiceHealthy ? 'Healthy' : 'Issues Detected'}
+                  color={getStatusColor(health.cnnServiceHealthy)}
+                  icon={health.cnnServiceHealthy ? <CheckCircleIcon /> : <WarningIcon />}
                   variant="outlined"
                 />
               </CardContent>
@@ -211,9 +211,9 @@ const Dashboard: React.FC = () => {
                   Sensor Array
                 </Typography>
                 <Chip
-                  label={health.ArduinoConnected ? 'Connected' : 'Disconnected'}
-                  color={getStatusColor(health.ArduinoConnected)}
-                  icon={health.ArduinoConnected ? <CheckCircleIcon /> : <ErrorIcon />}
+                  label={health.arduinoConnected ? 'Connected' : 'Disconnected'}
+                  color={getStatusColor(health.arduinoConnected)}
+                  icon={health.arduinoConnected ? <CheckCircleIcon /> : <ErrorIcon />}
                   variant="outlined"
                 />
               </CardContent>
@@ -237,7 +237,7 @@ const Dashboard: React.FC = () => {
                       Items Today
                     </Typography>
                     <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                      {formatNumber(stats.ItemsToday)}
+                      {formatNumber(stats.itemsToday)}
                     </Typography>
                   </Box>
                   <TrendingUp color="primary" sx={{ fontSize: 40 }} />
@@ -254,7 +254,7 @@ const Dashboard: React.FC = () => {
                       Accuracy Rate
                     </Typography>
                     <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                      {formatPercentage(stats.AccuracyRate)}
+                      {formatPercentage(stats.accuracyRate)}
                     </Typography>
                   </Box>
                   <Assessment color="success" sx={{ fontSize: 40 }} />
@@ -271,7 +271,7 @@ const Dashboard: React.FC = () => {
                       Processing Time
                     </Typography>
                     <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                      {health.AvgProcessingTimeMs}ms
+                      {health.avgProcessingTimeMs}ms
                     </Typography>
                   </Box>
                   <Speed color="warning" sx={{ fontSize: 40 }} />
@@ -288,7 +288,7 @@ const Dashboard: React.FC = () => {
                       Override Rate
                     </Typography>
                     <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                      {stats.OverrideRate.toFixed(1)}%
+                      {stats.overrideRate.toFixed(1)}%
                     </Typography>
                   </Box>
                   <Security color="info" sx={{ fontSize: 40 }} />
@@ -358,7 +358,7 @@ const Dashboard: React.FC = () => {
                   Total Items Processed
                 </Typography>
                 <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                  {formatNumber(stats.TotalItems)}
+                  {formatNumber(stats.totalItems)}
                 </Typography>
               </Box>
               
@@ -369,7 +369,7 @@ const Dashboard: React.FC = () => {
                   Weekly Progress
                 </Typography>
                 <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {formatNumber(stats.ItemsThisWeek)} items
+                  {formatNumber(stats.itemsThisWeek)} items
                 </Typography>
                 <LinearProgress 
                   variant="determinate" 
@@ -389,7 +389,7 @@ const Dashboard: React.FC = () => {
                   System Uptime
                 </Typography>
                 <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {health.SystemUptime.toFixed(1)} hours
+                  {health.systemUptime.toFixed(1)} hours
                 </Typography>
               </Box>
               
@@ -398,7 +398,7 @@ const Dashboard: React.FC = () => {
                   Memory Usage
                 </Typography>
                 <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {(health.MemoryUsageMB / 1024).toFixed(1)} GB
+                  {(health.memoryUsageMB / 1024).toFixed(1)} GB
                 </Typography>
               </Box>
             </Stack>
@@ -422,8 +422,8 @@ const Dashboard: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {Object.entries(stats.ClassificationBreakdown || {}).map(([category, count]) => {
-                const percentage = (count / stats.ItemsToday) * 100;
+              {Object.entries(stats.classificationBreakdown || {}).map(([category, count]) => {
+                const percentage = (count / stats.itemsToday) * 100;
                 return (
                   <TableRow key={category}>
                     <TableCell>{category}</TableCell>

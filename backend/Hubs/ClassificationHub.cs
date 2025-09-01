@@ -17,6 +17,8 @@ namespace SmartRecyclingBin.Hubs
         private readonly INotificationService _notificationService;
         private readonly ILogger<ClassificationHub> _logger;
 
+        private readonly JsonSerializerOptions _snakeCaseDeserializerOptions;
+
         public ClassificationHub(
             IClassificationService classificationService,
             IOverrideService overrideService,
@@ -27,6 +29,11 @@ namespace SmartRecyclingBin.Hubs
             _overrideService = overrideService;
             _notificationService = notificationService;
             _logger = logger;
+            _snakeCaseDeserializerOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+                PropertyNameCaseInsensitive = true
+            };
         }
 
         /// <summary>
@@ -34,6 +41,8 @@ namespace SmartRecyclingBin.Hubs
         /// </summary>
         public async Task SendClassificationResult(string jsonData)
         {
+            _logger.LogInformation("RAW JSON RECEIVED FROM PYTHON: {JsonData}", jsonData);
+
             var connectionId = Context.ConnectionId;
             var clientType = DetermineClientType();
             
@@ -42,7 +51,7 @@ namespace SmartRecyclingBin.Hubs
                 _logger.LogInformation("Received classification result from {ClientType} client {ConnectionId}", 
                     clientType, connectionId);
                 
-                var classificationData = JsonSerializer.Deserialize<EnhancedClassificationRequestDto>(jsonData);
+                var classificationData = JsonSerializer.Deserialize<EnhancedClassificationRequestDto>(jsonData, _snakeCaseDeserializerOptions);
                 
                 if (classificationData == null)
                 {

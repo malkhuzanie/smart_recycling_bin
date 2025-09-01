@@ -16,9 +16,8 @@ import {
   Tooltip,
   useTheme,
   useMediaQuery,
-  Fade,
-  Grow,
   Chip,
+  Divider,
 } from '@mui/material';
 import {
   Dashboard,
@@ -30,11 +29,14 @@ import {
   Settings,
   Close as CloseIcon,
   Analytics,
-  Refresh,
+  Visibility,
+  CameraAlt,
+  MonitorHeart,
+  Assessment,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-const drawerWidth = 280;
+const drawerWidth = 300;
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -43,6 +45,12 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [systemStatus, setSystemStatus] = useState({
+    isConnected: false,
+    cameraConnected: false,
+    processingActive: false
+  });
+
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
@@ -62,32 +70,57 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       icon: <Dashboard />,
       path: '/dashboard',
       color: '#1976d2',
+      description: 'Overview & Statistics',
+    },
+    {
+      text: 'Live Classification',
+      icon: <CameraAlt />,
+      path: '/live',
+      color: '#ed6c02',
+      description: 'Real-time Item Processing',
+      isNew: true,
     },
     {
       text: 'Classification History',
       icon: <History />,
       path: '/classifications',
       color: '#388e3c',
+      description: 'Past Classifications',
     },
     {
       text: 'System Health',
-      icon: <HealthAndSafety />,
+      icon: <MonitorHeart />,
       path: '/system',
-      color: '#f57c00',
+      color: '#d32f2f',
+      description: 'System Monitoring',
     },
     {
       text: 'Analytics',
-      icon: <Analytics />,
+      icon: <Assessment />,
       path: '/analytics',
       color: '#7b1fa2',
+      description: 'Performance Analytics',
+      disabled: true,
     },
+  ];
+
+  const adminMenuItems = [
     {
       text: 'Settings',
       icon: <Settings />,
       path: '/settings',
       color: '#455a64',
+      description: 'System Configuration',
+      disabled: true,
     },
   ];
+
+  const isSelected = (path: string) => {
+    if (path === '/dashboard' && (location.pathname === '/' || location.pathname === '/dashboard')) {
+      return true;
+    }
+    return location.pathname === path;
+  };
 
   const drawer = (
     <Box sx={{ 
@@ -95,322 +128,277 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       display: 'flex', 
       flexDirection: 'column',
       background: 'linear-gradient(145deg, #f8fafc 0%, #e2e8f0 100%)',
-      position: 'relative',
-      '&::before': {
-        content: '""',
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.1) 100%)',
-        backdropFilter: 'blur(10px)',
-        borderRight: '1px solid rgba(255,255,255,0.2)',
-      }
     }}>
-      {/* Header Section */}
-      <Box
-        sx={{
-          position: 'relative',
-          zIndex: 1,
-          p: 3,
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          color: 'white',
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <Box
-              sx={{
-                width: 48,
-                height: 48,
-                borderRadius: '12px',
-                background: 'rgba(255,255,255,0.2)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                mr: 2,
-                backdropFilter: 'blur(10px)',
-                animation: 'pulse 2s ease-in-out infinite',
-                '@keyframes pulse': {
-                  '0%, 100%': { transform: 'scale(1)' },
-                  '50%': { transform: 'scale(1.05)' },
-                },
-              }}
-            >
-              <RecyclingOutlined sx={{ fontSize: 28, color: 'white' }} />
-            </Box>
-            <Box>
-              <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
-                Smart Recycling
-              </Typography>
-              <Typography variant="caption" sx={{ opacity: 0.9, fontSize: 12 }}>
-                AI-Powered Sorting System
-              </Typography>
-            </Box>
-          </Box>
-          {isMobile && (
-            <IconButton color="inherit" onClick={handleDrawerToggle}>
-              <CloseIcon />
-            </IconButton>
-          )}
+      {/* Logo Section */}
+      <Box sx={{ 
+        p: 3, 
+        display: 'flex', 
+        alignItems: 'center', 
+        borderBottom: '1px solid rgba(0,0,0,0.08)',
+        background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
+        color: 'white'
+      }}>
+        <RecyclingOutlined sx={{ mr: 2, fontSize: 32 }} />
+        <Box>
+          <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+            Smart Recycling
+          </Typography>
+          <Typography variant="body2" sx={{ opacity: 0.9, fontSize: '0.75rem' }}>
+            Expert Classification System
+          </Typography>
         </Box>
       </Box>
 
-      {/* Status Indicators */}
-      <Box sx={{ position: 'relative', zIndex: 1, p: 2 }}>
-        <Box sx={{ mb: 2 }}>
+      {/* System Status Indicator */}
+      <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
+        <Box display="flex" alignItems="center" justifyContent="space-between">
+          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+            System Status
+          </Typography>
           <Chip
-            label="Expert System Active"
-            sx={{
-              background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
-              color: 'white',
-              fontWeight: 600,
-              width: '100%',
-              height: 40,
-              fontSize: '0.875rem',
-              '& .MuiChip-label': { px: 2 },
+            size="small"
+            label={systemStatus.isConnected ? 'Online' : 'Offline'}
+            color={systemStatus.isConnected ? 'success' : 'error'}
+            variant="filled"
+            sx={{ 
+              fontSize: '0.7rem',
+              height: 20,
+              fontWeight: 600
             }}
           />
         </Box>
-        
-        <Box
-          sx={{
-            background: 'rgba(255,255,255,0.9)',
-            borderRadius: 2,
-            p: 2,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-            backdropFilter: 'blur(10px)',
-            border: '1px solid rgba(255,255,255,0.2)',
+        <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
+          <Chip
+            size="small"
+            label="Camera"
+            color={systemStatus.cameraConnected ? 'success' : 'default'}
+            variant="outlined"
+            sx={{ fontSize: '0.65rem', height: 18 }}
+          />
+          <Chip
+            size="small"
+            label="Processing"
+            color={systemStatus.processingActive ? 'warning' : 'default'}
+            variant="outlined"
+            sx={{ fontSize: '0.65rem', height: 18 }}
+          />
+        </Box>
+      </Box>
+
+      {/* Main Navigation */}
+      <Box sx={{ flex: 1, py: 1 }}>
+        <Typography 
+          variant="overline" 
+          sx={{ 
+            px: 3, 
+            py: 1, 
+            color: 'text.secondary',
+            fontWeight: 600,
+            fontSize: '0.7rem'
           }}
         >
-          <Typography variant="caption" color="text.secondary" gutterBottom display="block">
-            CNN Model v3.93 Performance
-          </Typography>
-          <Typography variant="h4" sx={{ fontWeight: 700, color: 'primary.main', mb: 1 }}>
-            94.2%
-          </Typography>
-          <Box
-            sx={{
-              height: 8,
-              borderRadius: 4,
-              background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
-              position: 'relative',
-              overflow: 'hidden',
-              '&::after': {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%)',
-                animation: 'shimmer 2s infinite',
-              },
-              '@keyframes shimmer': {
-                '0%': { transform: 'translateX(-100%)' },
-                '100%': { transform: 'translateX(100%)' },
-              },
-            }}
-          />
-        </Box>
-      </Box>
-
-      {/* Navigation Menu */}
-      <Box sx={{ position: 'relative', zIndex: 1, flex: 1, px: 2 }}>
-        <List sx={{ pt: 1 }}>
-          {menuItems.map((item, index) => (
-            <Grow
-              in={mounted}
-              timeout={300 + index * 100}
-              key={item.text}
-            >
-              <ListItem disablePadding sx={{ mb: 1 }}>
-                <ListItemButton
-                  selected={location.pathname === item.path}
-                  onClick={() => {
+          Main Navigation
+        </Typography>
+        <List sx={{ px: 1 }}>
+          {menuItems.map((item) => (
+            <ListItem key={item.path} disablePadding>
+              <ListItemButton
+                selected={isSelected(item.path)}
+                onClick={() => {
+                  if (!item.disabled) {
                     navigate(item.path);
-                    setMobileOpen(false);
-                  }}
-                  sx={{
-                    borderRadius: 3,
-                    py: 1.5,
-                    px: 2,
-                    position: 'relative',
-                    overflow: 'hidden',
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    '&.Mui-selected': {
-                      background: `linear-gradient(135deg, ${item.color}15 0%, ${item.color}05 100%)`,
-                      backdropFilter: 'blur(10px)',
-                      border: `1px solid ${item.color}30`,
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        left: 0,
-                        top: 0,
-                        bottom: 0,
-                        width: 4,
-                        background: `linear-gradient(180deg, ${item.color} 0%, ${item.color}80 100%)`,
-                        borderRadius: '0 4px 4px 0',
-                      },
-                      '& .MuiListItemIcon-root': {
-                        color: item.color,
-                        transform: 'scale(1.1)',
-                      },
-                      '& .MuiListItemText-primary': {
-                        color: item.color,
-                        fontWeight: 600,
-                      },
+                    if (isMobile) {
+                      setMobileOpen(false);
+                    }
+                  }
+                }}
+                disabled={item.disabled}
+                sx={{
+                  borderRadius: 2,
+                  mx: 1,
+                  mb: 0.5,
+                  minHeight: 48,
+                  '&.Mui-selected': {
+                    backgroundColor: `${item.color}15`,
+                    borderLeft: `4px solid ${item.color}`,
+                    '& .MuiListItemIcon-root': {
+                      color: item.color,
                     },
-                    '&:hover': {
-                      background: `${item.color}08`,
-                      transform: 'translateX(4px)',
-                      '& .MuiListItemIcon-root': {
-                        transform: 'scale(1.05)',
-                      },
+                    '& .MuiListItemText-primary': {
+                      color: item.color,
+                      fontWeight: 600,
                     },
+                  },
+                  '&:hover': {
+                    backgroundColor: item.disabled ? 'transparent' : `${item.color}08`,
+                  },
+                  opacity: item.disabled ? 0.5 : 1,
+                  cursor: item.disabled ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 40 }}>
+                  {item.icon}
+                </ListItemIcon>
+                <ListItemText 
+                  primary={
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {item.text}
+                      </Typography>
+                      {item.isNew && (
+                        <Chip
+                          label="New"
+                          size="small"
+                          color="warning"
+                          variant="filled"
+                          sx={{ 
+                            fontSize: '0.6rem', 
+                            height: 16,
+                            fontWeight: 600
+                          }}
+                        />
+                      )}
+                    </Box>
+                  }
+                  secondary={item.description}
+                  secondaryTypographyProps={{
+                    variant: 'caption',
+                    color: 'text.secondary',
+                    sx: { fontSize: '0.7rem' }
                   }}
-                >
-                  <ListItemIcon
-                    sx={{
-                      minWidth: 48,
-                      transition: 'all 0.3s ease',
-                    }}
-                  >
-                    {item.icon}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={item.text}
-                    primaryTypographyProps={{
-                      sx: {
-                        fontSize: 14,
-                        fontWeight: location.pathname === item.path ? 600 : 500,
-                        transition: 'all 0.3s ease',
-                      }
-                    }}
-                  />
-                  {location.pathname === item.path && (
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        background: item.color,
-                        ml: 1,
-                        boxShadow: `0 0 12px ${item.color}60`,
-                      }}
-                    />
-                  )}
-                </ListItemButton>
-              </ListItem>
-            </Grow>
+                />
+              </ListItemButton>
+            </ListItem>
+          ))}
+        </List>
+
+        <Divider sx={{ my: 2, mx: 2 }} />
+
+        {/* Admin Section */}
+        <Typography 
+          variant="overline" 
+          sx={{ 
+            px: 3, 
+            py: 1, 
+            color: 'text.secondary',
+            fontWeight: 600,
+            fontSize: '0.7rem'
+          }}
+        >
+          Administration
+        </Typography>
+        <List sx={{ px: 1 }}>
+          {adminMenuItems.map((item) => (
+            <ListItem key={item.path} disablePadding>
+              <ListItemButton
+                selected={isSelected(item.path)}
+                onClick={() => {
+                  if (!item.disabled) {
+                    navigate(item.path);
+                    if (isMobile) {
+                      setMobileOpen(false);
+                    }
+                  }
+                }}
+                disabled={item.disabled}
+                sx={{
+                  borderRadius: 2,
+                  mx: 1,
+                  mb: 0.5,
+                  minHeight: 48,
+                  opacity: item.disabled ? 0.5 : 1,
+                  cursor: item.disabled ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 40 }}>
+                  {item.icon}
+                </ListItemIcon>
+                <ListItemText 
+                  primary={item.text}
+                  secondary={item.description}
+                  primaryTypographyProps={{
+                    variant: 'body2',
+                    fontWeight: 500
+                  }}
+                  secondaryTypographyProps={{
+                    variant: 'caption',
+                    color: 'text.secondary',
+                    sx: { fontSize: '0.7rem' }
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
           ))}
         </List>
       </Box>
 
       {/* Footer */}
-      <Box sx={{ position: 'relative', zIndex: 1, p: 2, textAlign: 'center' }}>
-        <Box
-          sx={{
-            background: 'rgba(255,255,255,0.9)',
-            borderRadius: 2,
-            p: 2,
-            backdropFilter: 'blur(10px)',
-            border: '1px solid rgba(255,255,255,0.2)',
-          }}
-        >
-          <Typography variant="caption" color="text.secondary">
-            Version 1.0.0 | Expert System
-          </Typography>
-          <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
-            Real-time Classification
-          </Typography>
-        </Box>
+      <Box sx={{ 
+        p: 2, 
+        borderTop: '1px solid rgba(0,0,0,0.08)',
+        backgroundColor: 'rgba(255,255,255,0.5)'
+      }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+          Smart Recycling Bin v1.0
+        </Typography>
+        <br />
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+          Expert System Integration
+        </Typography>
       </Box>
     </Box>
   );
 
+  if (!mounted) {
+    return null;
+  }
+
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* App Bar */}
       <AppBar
         position="fixed"
-        elevation={0}
         sx={{
           width: { md: `calc(100% - ${drawerWidth}px)` },
           ml: { md: `${drawerWidth}px` },
-          background: 'rgba(255,255,255,0.95)',
-          backdropFilter: 'blur(20px)',
-          borderBottom: '1px solid rgba(0,0,0,0.05)',
+          backgroundColor: 'white',
           color: 'text.primary',
+          borderBottom: '1px solid rgba(0,0,0,0.08)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
         }}
       >
-        <Toolbar sx={{ justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <IconButton
-              color="inherit"
-              edge="start"
-              onClick={handleDrawerToggle}
-              sx={{ mr: 2, display: { md: 'none' } }}
-            >
-              <MenuIcon />
-            </IconButton>
-            <Box>
-              <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary' }}>
-                Smart Recycling Control Center
-              </Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                Real-time monitoring and classification system
-              </Typography>
-            </Box>
-          </Box>
+        <Toolbar>
+          <IconButton
+            color="inherit"
+            aria-label="open drawer"
+            edge="start"
+            onClick={handleDrawerToggle}
+            sx={{ mr: 2, display: { md: 'none' } }}
+          >
+            <MenuIcon />
+          </IconButton>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Tooltip title="Refresh System">
-              <IconButton>
-                <Refresh />
-              </IconButton>
-            </Tooltip>
-            
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
+            {menuItems.find(item => isSelected(item.path))?.text || 'Smart Recycling Bin'}
+          </Typography>
+
+          {/* Header Actions */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Tooltip title="Notifications">
-              <IconButton>
-                <Badge badgeContent={3} color="error">
+              <IconButton color="inherit">
+                <Badge badgeContent={0} color="error">
                   <NotificationsOutlined />
                 </Badge>
               </IconButton>
             </Tooltip>
-            
-            <Chip
-              label="SYSTEM ONLINE"
-              sx={{
-                background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
-                color: 'white',
-                fontWeight: 600,
-                px: 2,
-                animation: 'statusPulse 3s ease-in-out infinite',
-                '@keyframes statusPulse': {
-                  '0%, 100%': { boxShadow: '0 2px 8px rgba(76, 175, 80, 0.3)' },
-                  '50%': { boxShadow: '0 4px 16px rgba(76, 175, 80, 0.5)' },
-                },
-              }}
-            />
 
-            <Avatar
-              sx={{
-                width: 40,
-                height: 40,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
-                transition: 'all 0.3s ease',
-                '&:hover': {
-                  transform: 'translateY(-2px)',
-                  boxShadow: '0 6px 20px rgba(102, 126, 234, 0.4)',
-                },
-              }}
-            >
-              BN
-            </Avatar>
+            <Tooltip title="Operator Profile">
+              <IconButton>
+                <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
+                  O
+                </Avatar>
+              </IconButton>
+            </Tooltip>
           </Box>
         </Toolbar>
       </AppBar>
@@ -419,18 +407,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <Box
         component="nav"
         sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}
+        aria-label="navigation folders"
       >
         <Drawer
           variant="temporary"
           open={mobileOpen}
           onClose={handleDrawerToggle}
-          ModalProps={{ keepMounted: true }}
+          ModalProps={{
+            keepMounted: true, // Better open performance on mobile.
+          }}
           sx={{
             display: { xs: 'block', md: 'none' },
-            '& .MuiDrawer-paper': {
-              boxSizing: 'border-box',
-              width: drawerWidth,
-              border: 'none',
+            '& .MuiDrawer-paper': { 
+              boxSizing: 'border-box', 
+              width: drawerWidth 
             },
           }}
         >
@@ -440,10 +430,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           variant="permanent"
           sx={{
             display: { xs: 'none', md: 'block' },
-            '& .MuiDrawer-paper': {
-              boxSizing: 'border-box',
+            '& .MuiDrawer-paper': { 
+              boxSizing: 'border-box', 
               width: drawerWidth,
-              border: 'none',
+              position: 'relative',
+              height: '100vh',
             },
           }}
           open
@@ -452,38 +443,25 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </Drawer>
       </Box>
 
-      {/* Main Content - FIXED MARGINS */}
+      {/* Main Content */}
       <Box
         component="main"
         sx={{
           flexGrow: 1,
           width: { md: `calc(100% - ${drawerWidth}px)` },
-          minHeight: '100vh',
-          background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-          position: 'relative',
-          '&::before': {
-            content: '""',
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'radial-gradient(circle at 20% 20%, rgba(102, 126, 234, 0.1) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(118, 75, 162, 0.1) 0%, transparent 50%)',
-            pointerEvents: 'none',
-          },
+          height: '100vh',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
-        <Toolbar />
-        {/* REMOVED CONTAINER AND PADDING - FULL WIDTH */}
-        <Box
-          sx={{
-            position: 'relative',
-            zIndex: 1,
-            width: '100%',
-            margin: 0,
-            padding: 0,
-          }}
-        >
+        <Toolbar /> {/* Spacing for fixed AppBar */}
+        <Box sx={{ 
+          flex: 1, 
+          overflow: 'auto',
+          p: 2,
+          backgroundColor: 'background.default'
+        }}>
           {children}
         </Box>
       </Box>

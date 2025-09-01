@@ -26,33 +26,33 @@ interface SignalRState {
   error: string | null;
 }
 
-// Default values using ACTUAL backend model property names
+// Default values using camelCase to match API
 const defaultStats: SystemStats = {
-  TotalItems: 0,
-  AccuracyRate: 0,
-  AvgProcessingTime: 0,
-  ClassificationBreakdown: {},
-  OverrideRate: 0,
-  ItemsToday: 0,
-  ItemsThisWeek: 0,
-  ItemsThisMonth: 0,
-  LastClassification: new Date(),
-  HourlyBreakdown: []
+  totalItems: 0,
+  accuracyRate: 0,
+  avgProcessingTime: 0,
+  classificationBreakdown: {},
+  overrideRate: 0,
+  itemsToday: 0,
+  itemsThisWeek: 0,
+  itemsThisMonth: 0,
+  lastClassification: new Date(),
+  hourlyBreakdown: []
 };
 
 const defaultHealth: SystemHealth = {
-  Timestamp: new Date(),
-  CameraConnected: false,
-  ArduinoConnected: false,
-  CnnServiceHealthy: false,
-  ExpertSystemHealthy: false,
-  AvgProcessingTimeMs: 0,
-  TotalItemsProcessed: 0,
-  AccuracyRate: 0,
-  ClassificationCounts: {},
-  SystemUptime: 0,
-  MemoryUsageMB: 0,
-  CpuUsagePercent: 0,
+  timestamp: new Date(),
+  cameraConnected: false,
+  arduinoConnected: false,
+  cnnServiceHealthy: false,
+  expertSystemHealthy: false,
+  avgProcessingTimeMs: 0,
+  totalItemsProcessed: 0,
+  accuracyRate: 0,
+  classificationCounts: {},
+  systemUptime: 0,
+  memoryUsageMB: 0,
+  cpuUsagePercent: 0,
   isHealthy: false
 };
 
@@ -165,25 +165,32 @@ export const useSignalR = () => {
             break;
         
           case 'status':
-          case 'initial_status':
-            if (update.data?.HealthMetrics) {
-              const healthData = update.data.HealthMetrics;
-              newState.health = {
-                ...defaultHealth,
-                ...healthData,
-                isHealthy: healthData.CnnServiceHealthy && 
-                          healthData.ExpertSystemHealthy && 
-                          healthData.CameraConnected && 
-                          healthData.ArduinoConnected
-              };
+          case 'initial_status': {
+            const healthData = update.type === 'status' ? update.data : update.data?.healthMetrics;
+            const statsData = update.data?.stats;
+            if (healthData) {
+                // *** THE FIX: Manually construct the health object ***
+                newState.health = {
+                  timestamp: healthData.timestamp || prev.health.timestamp,
+                  cameraConnected: healthData.cameraConnected,
+                  arduinoConnected: healthData.arduinoConnected,
+                  cnnServiceHealthy: healthData.cnnServiceHealthy,
+                  expertSystemHealthy: healthData.expertSystemHealthy,
+                  avgProcessingTimeMs: healthData.avgProcessingTimeMs,
+                  totalItemsProcessed: healthData.totalItemsProcessed,
+                  accuracyRate: healthData.accuracyRate,
+                  classificationCounts: healthData.classificationCounts || prev.health.classificationCounts,
+                  systemUptime: healthData.systemUptime,
+                  memoryUsageMB: healthData.memoryUsageMB,
+                  cpuUsagePercent: healthData.cpuUsagePercent || 0,
+                  isHealthy: healthData.cnnServiceHealthy && healthData.expertSystemHealthy && healthData.cameraConnected && healthData.arduinoConnected,
+                };
             }
-            if (update.data?.Stats) {
-              newState.stats = {
-                ...defaultStats,
-                ...update.data.Stats,
-              };
+            if (statsData) {
+              newState.stats = { ...defaultStats, ...statsData };
             }
             break;
+          }
         
           case 'alert':
             newState.latestAlert = update.data;
@@ -195,9 +202,8 @@ export const useSignalR = () => {
             }
             break;
         }
-
-        console.error(update);
-        console.error("new state", newState);
+        
+        console.log("Updated state from dashboard update:", newState);
         return newState;
       });
     } catch (error) {

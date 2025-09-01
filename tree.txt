@@ -101,8 +101,7 @@
 │   └── tsconfig.json
 ├── garbage_classification.py
 ├── models
-│   ├── garbage_classification.py
-│   └── trash_classifier_v3_93_accuracy_4mp.keras
+│   └── garbage_classification.py
 ├── python-services
 │   ├── connection_test.py
 │   ├── main.py
@@ -146,4 +145,4 @@
 │   └── stop-mvp.sh
 └── tree.txt
 
-41 directories, 106 files
+41 directories, 105 files
