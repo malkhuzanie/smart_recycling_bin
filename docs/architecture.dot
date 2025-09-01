@@ -1,0 +1,103 @@
+digraph G {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+
+    // Node Definitions
+    A [label="Waste Item on Conveyor"];
+    B [label="OpenCV Camera Capture"];
+    C [label="Weight Sensor Reading"];
+    D [label="Metal Detector Reading"];
+    E [label="Humidity Sensor Reading"];
+    F [label="IR Sensor Reading"];
+    
+    G [label="Image Preprocessing & Feature Extraction"];
+    H [label="Stage 1 CNN Model\n5-Class Classification", style="filled, rounded", fillcolor="#e1f5fe"];
+    I [label="Stage 1 Output\nConfidence > 0.85?", shape=diamond];
+    J [label="Extract Top Prediction"];
+    K [label="Fallback: Sensor-Based Rules"];
+    
+    L [label="Predicted Class", shape=ellipse];
+    
+    M [label="Stage 2 CNN Model\nPlastic Subcategorization", style="filled, rounded", fillcolor="#fff3e0"];
+    N [label="Expert System\nMetal Validation"];
+    O [label="Expert System\nGlass Validation"]; 
+    P [label="Expert System\nPaper Validation"];
+    Q [label="Expert System\nOrganic Validation"];
+    
+    R [label="Stage 2 Output:\nPET Bottles, Plastic Bags,\nContainers, Food Packaging"];
+    
+    S [label="Weight Analysis Module"];
+    T [label="Metal Detection Module"];
+    U [label="Humidity Analysis Module"];
+    V [label="IR Spectroscopy Module"];
+    
+    W [label="Expert System Core", style="filled, rounded", fillcolor="#f3e5f5"];
+    X [label="Plastic Subtype Validation"];
+    Y [label="Rule-Based Fallback\nUsing Sensor Data Only"];
+    
+    Z [label="Final Classification Decision", style="filled, rounded", fillcolor="#e8f5e8"];
+    AA [label="Sorting Mechanism Control"];
+    BB [label="Confidence Score & Metadata"];
+    
+    CC [label="Pneumatic Actuator/\nRobotic Arm Control"];
+    DD [label="Sort into Appropriate Bin"];
+
+    // Subgraphs (Clusters)
+    subgraph "cluster_stage1" {
+        label="Stage 1: Broad Material Classification";
+        style=dashed;
+        H; I; J; L;
+    }
+    
+    subgraph "cluster_stage2" {
+        label="Stage 2: Plastic Specialization";
+        style=dashed;
+        M; R; X;
+    }
+    
+    subgraph "cluster_expert" {
+        label="Expert System Integration";
+        style=dashed;
+        W; N; O; P; Q; K; Y; S; T; U; V;
+    }
+    
+    subgraph "cluster_sensors" {
+        label="Sensor Validation Layer";
+        style=dashed;
+        C; D; E; F;
+    }
+
+    // Edge Definitions
+    A -> {B, C, D, E, F};
+    B -> G;
+    G -> H;
+    H -> I;
+    I -> J [label="Yes"];
+    I -> K [label="No"];
+    J -> L;
+    
+    L -> M [label="Plastic"];
+    L -> N [label="Metal"];
+    L -> O [label="Glass"];
+    L -> P [label="Paper/Carton"];
+    L -> Q [label="Organic"];
+    
+    M -> R;
+    
+    C -> S;
+    D -> T;
+    E -> U;
+    F -> V;
+    
+    {S, T, U, V, N, O, P, Q} -> W;
+    
+    R -> X -> W;
+    K -> Y -> W;
+    
+    W -> Z;
+    W -> BB;
+    Z -> AA;
+    BB -> AA;
+    
+    AA -> CC -> DD;
+}

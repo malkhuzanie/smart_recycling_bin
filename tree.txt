@@ -1,0 +1,149 @@
+.
+├── backend
+│   ├── appsettings.Development.json
+│   ├── appsettings.json
+│   ├── Controllers
+│   │   ├── ClassificationController.cs
+│   │   ├── DashboardController.cs
+│   │   └── SystemController.cs
+│   ├── Data
+│   │   └── ApplicationDbContext.cs
+│   ├── Hubs
+│   │   ├── ClassificationHub.cs
+│   │   └── DashboardHub.cs
+│   ├── Middleware
+│   │   ├── ErrorHandlingMiddleware.cs
+│   │   └── RequestLoggingMiddleware.cs
+│   ├── Models
+│   │   ├── ApplicationSettings.cs
+│   │   ├── ClassificationModels.cs
+│   │   ├── ClassificationSearchCriteria.cs
+│   │   ├── CnnStageInfo.cs
+│   │   ├── DTOs
+│   │   │   ├── ClassificationRequestDto.cs
+│   │   │   ├── ClassificationResponseDto.cs
+│   │   │   └── DashboardStatsDto.cs
+│   │   ├── ErrorResponse.cs
+│   │   ├── PagedResult.cs
+│   │   └── ValidationResult.cs
+│   ├── Program.cs
+│   ├── Properties
+│   │   └── launchSettings.json
+│   ├── Services
+│   │   ├── ClassificationService.cs
+│   │   ├── IClassificationService.cs
+│   │   ├── INotificationService.cs
+│   │   ├── IOverrideService.cs
+│   │   ├── ISystemHealthService.cs
+│   │   ├── NotificationService.cs
+│   │   ├── OverrideService.cs
+│   │   ├── SystemHealthCheck.cs
+│   │   └── SystemHealthService.cs
+│   ├── SmartRecyclingBin.csproj
+│   └── SmartRecyclingBin.http
+├── config
+│   ├── development
+│   └── production
+├── data
+│   ├── smartbin.db-shm
+│   └── smartbin.db-wal
+├── docker
+│   └── dockerfiles
+│       ├── Dockerfile.backend
+│       ├── Dockerfile.frontend
+│       └── Dockerfile.python
+├── docker-compose.dev.yml
+├── docker-compose.yml
+├── frontend
+│   ├── Dockerfile.dev
+│   ├── nginx.conf
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── public
+│   │   ├── assets
+│   │   ├── favicon.ico
+│   │   ├── index.html
+│   │   ├── logo192.png
+│   │   ├── logo512.png
+│   │   ├── manifest.json
+│   │   └── robots.txt
+│   ├── README.md
+│   ├── src
+│   │   ├── App.css
+│   │   ├── App.test.tsx
+│   │   ├── App.tsx
+│   │   ├── components
+│   │   │   ├── Classification
+│   │   │   │   └── ClassificationHistory.tsx
+│   │   │   ├── Dashboard
+│   │   │   │   └── Dashboard.tsx
+│   │   │   ├── Layout
+│   │   │   │   └── Layout.tsx
+│   │   │   └── System
+│   │   │       └── SystemHealth.tsx
+│   │   ├── hooks
+│   │   │   ├── useApi.ts
+│   │   │   ├── useSignalR.ts
+│   │   │   └── useSystemHealth.ts
+│   │   ├── index.css
+│   │   ├── index.tsx
+│   │   ├── logo.svg
+│   │   ├── react-app-env.d.ts
+│   │   ├── reportWebVitals.ts
+│   │   ├── services
+│   │   │   ├── api.ts
+│   │   │   └── signalr.ts
+│   │   ├── setupTests.ts
+│   │   ├── styles
+│   │   ├── types
+│   │   │   └── index.ts
+│   │   └── utils
+│   └── tsconfig.json
+├── garbage_classification.py
+├── models
+│   ├── garbage_classification.py
+│   └── trash_classifier_v3_93_accuracy_4mp.keras
+├── python-services
+│   ├── connection_test.py
+│   ├── main.py
+│   ├── orchestrated_main_service.py
+│   ├── pytest.ini
+│   ├── requirements_integrated.txt
+│   ├── requirements.txt
+│   ├── services
+│   │   ├── arduino_service.py
+│   │   ├── cnn_service.py
+│   │   └── hub_client.py
+│   ├── setup.cfg
+│   ├── setup.py
+│   ├── src
+│   │   └── smart_bin
+│   │       ├── core
+│   │       │   ├── facts.py
+│   │       │   ├── __init__.py
+│   │       │   ├── knowledge_engine.py
+│   │       │   └── resolver.py
+│   │       ├── __init__.py
+│   │       ├── interfaces
+│   │       │   ├── cli.py
+│   │       │   └── __init__.py
+│   │       └── models
+│   │           ├── decisions.py
+│   │           ├── __init__.py
+│   │           ├── sensors.py
+│   │           └── waste_types.py
+│   └── tests
+│       ├── conftest.py
+│       ├── test_integration.py
+│       ├── test_knowledge_engine.py
+│       ├── test_models.py
+│       └── test_resolver.py
+├── requirements-integrated.txt
+├── requirements-test.txt
+├── scripts
+│   ├── deployment
+│   ├── start-mvp.sh
+│   └── stop-mvp.sh
+└── tree.txt
+
+41 directories, 106 files

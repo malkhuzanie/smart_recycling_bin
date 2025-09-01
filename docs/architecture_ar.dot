@@ -1,0 +1,107 @@
+digraph G {
+    // Set default font for Arabic rendering
+    graph [fontname="Amiri"];
+    node [fontname="Amiri", shape=box, style=rounded];
+    edge [fontname="Amiri"];
+    
+    rankdir=TB;
+
+    // Node Definitions (Translated to Arabic)
+    A [label="قطعة نفايات على السير الناقل"];
+    B [label="التقاط صورة بكاميرا OpenCV"];
+    C [label="قراءة مستشعر الوزن"];
+    D [label="قراءة كاشف المعادن"];
+    E [label="قراءة مستشعر الرطوبة"];
+    F [label="قراءة مستشعر الأشعة تحت الحمراء"];
+    
+    G [label="معالجة مسبقة للصور واستخراج الميزات"];
+    H [label="نموذج CNN - المرحلة الأولى\nتصنيف خماسي الفئات", style="filled, rounded", fillcolor="#e1f5fe"];
+    I [label="مخرجات المرحلة الأولى\nهل الثقة > 0.85؟", shape=diamond];
+    J [label="استخلاص أفضل تنبؤ"];
+    K [label="حل بديل: قواعد قائمة على المستشعرات"];
+    
+    L [label="الفئة المتوقعة", shape=ellipse];
+    
+    M [label="نموذج CNN - المرحلة الثانية\nتصنيف فرعي للبلاستيك", style="filled, rounded", fillcolor="#fff3e0"];
+    N [label="النظام الخبير\nالتحقق من المعادن"];
+    O [label="النظام الخبير\nالتحقق من الزجاج"]; 
+    P [label="النظام الخبير\nالتحقق من الورق"];
+    Q [label="النظام الخبير\nالتحقق من المواد العضوية"];
+    
+    R [label="مخرجات المرحلة الثانية:\nزجاجات PET، أكياس بلاستيكية،\nحاويات، تغليف أغذية"];
+    
+    S [label="وحدة تحليل الوزن"];
+    T [label="وحدة كشف المعادن"];
+    U [label="وحدة تحليل الرطوبة"];
+    V [label="وحدة التحليل الطيفي بالأشعة تحت الحمراء"];
+    
+    W [label="النواة الأساسية للنظام الخبير", style="filled, rounded", fillcolor="#f3e5f5"];
+    X [label="التحقق من النوع الفرعي للبلاستيك"];
+    Y [label="حل بديل قائم على القواعد\nباستخدام بيانات المستشعرات فقط"];
+    
+    Z [label="قرار التصنيف النهائي", style="filled, rounded", fillcolor="#e8f5e8"];
+    AA [label="التحكم في آلية الفرز"];
+    BB [label="درجة الثقة والبيانات الوصفية"];
+    
+    CC [label="مشغل هوائي/\nالتحكم بالذراع الروبوتية"];
+    DD [label="الفرز في الحاوية المناسبة"];
+
+    // Subgraphs (Clusters)
+    subgraph "cluster_stage1" {
+        label="المرحلة 1: تصنيف المواد العام";
+        style=dashed;
+        H; I; J; L;
+    }
+    
+    subgraph "cluster_stage2" {
+        label="المرحلة 2: التخصص في البلاستيك";
+        style=dashed;
+        M; R; X;
+    }
+    
+    subgraph "cluster_expert" {
+        label="تكامل النظام الخبير";
+        style=dashed;
+        W; N; O; P; Q; K; Y; S; T; U; V;
+    }
+    
+    subgraph "cluster_sensors" {
+        label="طبقة التحقق من المستشعرات";
+        style=dashed;
+        C; D; E; F;
+    }
+
+    // Edge Definitions
+    A -> {B, C, D, E, F};
+    B -> G;
+    G -> H;
+    H -> I;
+    I -> J [label="نعم"];
+    I -> K [label="لا"];
+    J -> L;
+    
+    L -> M [label="بلاستيك"];
+    L -> N [label="معدن"];
+    L -> O [label="زجاج"];
+    L -> P [label="ورق/كرتون"];
+    L -> Q [label="عضوي"];
+    
+    M -> R;
+    
+    C -> S;
+    D -> T;
+    E -> U;
+    F -> V;
+    
+    {S, T, U, V, N, O, P, Q} -> W;
+    
+    R -> X -> W;
+    K -> Y -> W;
+    
+    W -> Z;
+    W -> BB;
+    Z -> AA;
+    BB -> AA;
+    
+    AA -> CC -> DD;
+}

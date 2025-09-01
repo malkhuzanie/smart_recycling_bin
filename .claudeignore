@@ -90,4 +90,9 @@ temp/
 data/*.db
 data/*.sqlite
 data/logs/
-.claudesync/
+
+
+docs/
+Readme.md
+frontend/package-lock.json
+python-services/tests/

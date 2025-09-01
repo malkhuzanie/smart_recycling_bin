@@ -1,0 +1,96 @@
+digraph G {
+    // --- Global Settings ---
+    // Layout direction: Top to Bottom
+    rankdir=TB; 
+    // Use straight lines with right angles, similar to Mermaid
+    splines=ortho; 
+    // Set default styles for nodes and edges
+    node [shape=box, style="rounded,filled", fontname="Helvetica"];
+    edge [fontname="Helvetica"];
+    
+    // --- Subgraph Definitions ---
+    // The "cluster_" prefix is required to draw a bounding box
+    subgraph cluster_ProcessingCore {
+        label = "Processing Core";
+        style = "filled";
+        fillcolor = "#fafafa";
+        // Nodes in this subgraph
+        CNNService;
+        ExpertSystem;
+    }
+
+    subgraph cluster_ArduinoLayer {
+        label = "Arduino Layer";
+        style = "filled";
+        fillcolor = "#fafafa";
+        // Nodes in this subgraph
+        Arduino;
+        SortingControl;
+    }
+
+    subgraph cluster_UserInterface {
+        label = "User Interface";
+        style = "filled";
+        fillcolor = "#fafafa";
+        // Nodes in this subgraph
+        Frontend;
+        WebSocket;
+    }
+    
+    // --- Node Definitions (with labels and custom styles) ---
+    // Use HTML-like labels <...> to allow for line breaks (<br/>)
+
+    // Input Layer
+    Camera [label="USB Camera", fillcolor=white];
+    ImageCapture [label="Image Capture Service", fillcolor=white];
+    Arduino [label="Arduino + Sensors", fillcolor=white];
+    SensorBridge [label="Sensor Data Bridge", fillcolor=white];
+    
+    // Processing Layer
+    CNNService [label=<CNN Model Service<br/>Python + TensorFlow>, fillcolor="#fff3e0"];
+    ExpertSystem [label=<Expert System<br/>Python + Experta>, fillcolor="#f3e5f5"];
+    
+    // Coordination Layer
+    // FIXED: Replaced & with &amp;
+    Backend [label=<C# Backend API<br/>Coordination &amp; Data>, fillcolor="#e1f5fe"];
+    
+    // Action Layer
+    SortingControl [label=<Sorting Mechanism<br/>Arduino Control>, fillcolor=white];
+    
+    // User Interface
+    Frontend [label=<React Dashboard<br/>MUI Components>, fillcolor="#e8f5e8"];
+    WebSocket [label="WebSocket Hub", fillcolor=white];
+    
+    // Data Storage (Mermaid's [(...)] shape becomes shape=cylinder)
+    // FIXED: Replaced & with &amp;
+    Database [label=<Database<br/>Logs &amp; Config>, shape=cylinder, fillcolor=white];
+
+    // --- Edge Definitions (Connections) ---
+    
+    // Input Layer
+    Camera -> ImageCapture;
+    Arduino -> SensorBridge;
+    
+    // Processing Layer
+    ImageCapture -> CNNService;
+    SensorBridge -> ExpertSystem;
+    CNNService -> ExpertSystem;
+    
+    // Coordination Layer
+    ExpertSystem -> Backend;
+    SensorBridge -> Backend;
+    
+    // Action Layer
+    Backend -> SortingControl;
+    
+    // User Interface
+    Backend -> Frontend;
+    Frontend -> Backend;
+    
+    // Data Storage
+    Backend -> Database;
+    
+    // Real-time Communication (Mermaid's -.-> becomes style=dashed)
+    Backend -> WebSocket [style=dashed];
+    WebSocket -> Frontend [style=dashed];
+}

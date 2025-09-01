@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # C# Backend API (Development)
+  backend-api-dev:
+    build:
+      context: ./backend
+      dockerfile: ../docker/dockerfiles/Dockerfile.backend
+      target: build  # Stop at build stage for development
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/smartbin.db
+    volumes:
+      - ./backend:/app/src
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - smartbin-network
+    restart: unless-stopped
+    command: ["dotnet", "watch", "run", "--no-restore", "--urls", "http://0.0.0.0:5000"]
+
+  # React Frontend (Development)
+  frontend-dev:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:5000
+      - REACT_APP_WS_URL=ws://localhost:5000
+      - CHOKIDAR_USEPOLLING=true
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - /app/node_modules
+    networks:
+      - smartbin-network
+    depends_on:
+      - backend-api-dev
+    stdin_open: true
+    tty: true
+
+networks:
+  smartbin-network:
+    driver: bridge
