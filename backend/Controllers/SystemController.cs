@@ -173,7 +173,7 @@ namespace SmartRecyclingBin.Controllers
         /// Get system status summary
         /// </summary>
         [HttpGet("status")]
-        public async Task<ActionResult<object>> GetSystemStatus()
+public async Task<ActionResult<object>> GetSystemStatus()
         {
             try
             {
@@ -183,26 +183,26 @@ namespace SmartRecyclingBin.Controllers
                 var status = new
                 {
                     timestamp = DateTime.UtcNow,
-                    overall_healthy = health.CnnServiceHealthy && health.ExpertSystemHealthy && 
+                    overallHealthy = health.CnnServiceHealthy && health.ExpertSystemHealthy && 
                                     health.CameraConnected && health.ArduinoConnected,
                     components = new
                     {
-                        cnn_service = health.CnnServiceHealthy,
-                        expert_system = health.ExpertSystemHealthy,
-                        camera = health.CameraConnected,
-                        arduino = health.ArduinoConnected
+                        cnnServiceHealthy = health.CnnServiceHealthy,
+                        expertSystemHealthy = health.ExpertSystemHealthy,
+                        cameraConnected = health.CameraConnected,
+                        arduinoConnected = health.ArduinoConnected
                     },
                     metrics = new
                     {
-                        avg_processing_time_ms = health.AvgProcessingTimeMs,
-                        total_items_processed = health.TotalItemsProcessed,
-                        accuracy_rate = health.AccuracyRate,
-                        system_uptime_hours = health.SystemUptime,
-                        memory_usage_mb = health.MemoryUsageMB
+                        avgProcessingTimeMs = health.AvgProcessingTimeMs,
+                        totalItemsProcessed = health.TotalItemsProcessed,
+                        accuracyRate = health.AccuracyRate,
+                        systemUptimeHours = health.SystemUptime,
+                        memoryUsageMb = health.MemoryUsageMB
                     },
                     alerts = new
                     {
-                        total_active = activeAlerts.Count,
+                        totalActive = activeAlerts.Count,
                         critical = activeAlerts.Count(a => a.Severity == "CRITICAL"),
                         warning = activeAlerts.Count(a => a.Severity == "WARNING"),
                         info = activeAlerts.Count(a => a.Severity == "INFO")
@@ -217,7 +217,7 @@ namespace SmartRecyclingBin.Controllers
                 return StatusCode(500, new { error = "Internal server error", details = ex.Message });
             }
         }
-
+        
         /// <summary>
         /// Test endpoint to verify API connectivity
         /// </summary>

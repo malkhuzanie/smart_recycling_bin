@@ -1,255 +1,289 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Typography,
-  Card,
-  CardContent,
   Box,
   Grid,
+  Paper,
+  Typography,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
   Chip,
-  TextField,
-  MenuItem,
-  Pagination,
-  LinearProgress,
-  Button,
-  Alert,
   IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  Button,
+  TextField,
   FormControl,
   InputLabel,
   Select,
-  SelectChangeEvent, // <-- FIXED: Import SelectChangeEvent
+  MenuItem,
+  Pagination,
+  LinearProgress,
+  Alert,
+  Tooltip,
 } from '@mui/material';
 import {
-  History,
-  FilterList,
-  Download,
-  Search,
-  CheckCircle,
-  Warning,
-  Error as ErrorIcon,
   Visibility,
+  GetApp,
+  FilterList,
+  Search,
   Refresh,
+  Close as CloseIcon,
 } from '@mui/icons-material';
-import { api } from '../../services/api';
-import { useSignalR } from '../../hooks/useSignalR';
-import { ClassificationResult } from '../../types';
+import { useClassificationHistory } from '../../hooks/useClassificationHistory';
+import { SearchCriteria } from '../../services/api';
+
+interface ClassificationDetails {
+  id: number;
+  detectionId: string;
+  timestamp: string;
+  finalClassification: string;
+  finalConfidence: number;
+  disposalLocation: string;
+  reasoning: string;
+  processingTimeMs: number;
+  cnnPredictedClass: string;
+  cnnConfidence: number;
+  cnnStage: number;
+  isOverridden: boolean;
+  overrideReason?: string;
+  sensorData?: any;
+}
 
 const ClassificationHistory: React.FC = () => {
-  const [classifications, setClassifications] = useState<ClassificationResult[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [pageSize] = useState(20);
-  const [filterBy, setFilterBy] = useState<string>('');
+  // State for filters and UI
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedClassification, setSelectedClassification] = useState<ClassificationResult | null>(null);
+  const [classificationFilter, setClassificationFilter] = useState('');
+  const [confidenceFilter, setConfidenceFilter] = useState('');
+  const [overrideFilter, setOverrideFilter] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [selectedClassification, setSelectedClassification] = useState<ClassificationDetails | null>(null);
 
-  // Use SignalR for real-time updates
-  const { latestClassification } = useSignalR();
+  // Use the specialized classification history hook
+  const {
+    classifications,
+    latestClassification,
+    totalCount,
+    loading,
+    error,
+    currentPage,
+    totalPages,
+    hasNextPage,
+    hasPreviousPage,
+    fetchClassifications,
+    refreshData,
+    changePage,
+    clearError,
+  } = useClassificationHistory();
 
-  // Fetch classifications data
-  const fetchClassifications = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const response = await api.getRecentClassifications(
-        page, 
-        pageSize, 
-        filterBy || undefined
-      );
-      
-      setClassifications(response.items);
-      setTotalPages(response.totalPages);
-      setTotalCount(response.totalCount);
-    } catch (err) {
-      console.error('Error fetching classifications:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load classifications');
-    } finally {
-      setLoading(false);
+  // Apply filters
+  const applyFilters = async () => {
+    const criteria: SearchCriteria = {
+      limit: 50,
+      offset: 0,
+      sortBy: 'timestamp',
+      sortDescending: true,
+    };
+
+    if (searchTerm) {
+      criteria.detectionId = searchTerm;
     }
-  };
-
-  // Initial data fetch and refresh on filter changes
-  useEffect(() => {
-    fetchClassifications();
-  }, [page, filterBy]);
-
-  // Add new classification from SignalR to the top of the list
-  useEffect(() => {
-    if (latestClassification && page === 1) {
-      setClassifications(prev => {
-        // Check if this classification already exists
-        if (prev.some(c => c.id === latestClassification.id)) {
-          return prev;
-        }
-        
-        // Add to the beginning and maintain page size
-        const updated = [latestClassification, ...prev];
-        return updated.slice(0, pageSize);
-      });
-      
-      setTotalCount(prev => prev + 1);
+    if (classificationFilter) {
+      criteria.classification = classificationFilter;
     }
-  }, [latestClassification, page, pageSize]);
-
-  const handlePageChange = (event: React.ChangeEvent<unknown>, newPage: number) => {
-    setPage(newPage);
-  };
-
-  // FIXED: Changed the event type to SelectChangeEvent
-  const handleFilterChange = (event: SelectChangeEvent) => {
-    setFilterBy(event.target.value);
-    setPage(1); // Reset to first page when filter changes
-  };
-
-  const handleExportData = async () => {
-    try {
-      const blob = await api.exportClassifications();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `classifications_${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Export failed:', err);
+    if (confidenceFilter === 'high') {
+      criteria.minConfidence = 0.9;
+    } else if (confidenceFilter === 'medium') {
+      criteria.minConfidence = 0.7;
+      criteria.maxConfidence = 0.9;
+    } else if (confidenceFilter === 'low') {
+      criteria.maxConfidence = 0.7;
     }
+    if (overrideFilter) {
+      criteria.isOverridden = overrideFilter === 'overridden';
+    }
+
+    await fetchClassifications(criteria);
   };
 
-  const handleViewDetails = (classification: ClassificationResult) => {
+  // Clear filters
+  const clearFilters = () => {
+    setSearchTerm('');
+    setClassificationFilter('');
+    setConfidenceFilter('');
+    setOverrideFilter('');
+    fetchClassifications({
+      limit: 50,
+      offset: 0,
+      sortBy: 'timestamp',
+      sortDescending: true,
+    });
+  };
+
+  // Handle page change
+  const handlePageChange = (_event: React.ChangeEvent<unknown>, page: number) => {
+    changePage(page);
+  };
+
+  // Show details
+  const showDetails = (classification: any) => {
     setSelectedClassification(classification);
     setDetailsOpen(true);
   };
 
-  const getValidationIcon = (status: 'pass' | 'fail') => {
-    return status === 'pass' ? (
-      <CheckCircle color="success" fontSize="small" />
-    ) : (
-      <ErrorIcon color="error" fontSize="small" />
-    );
+  // Download data (placeholder)
+  const downloadData = () => {
+    console.log('Download functionality would be implemented here');
   };
 
+  // Format date
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString();
+  };
+
+  // Format confidence
+  const formatConfidence = (confidence: number) => {
+    return `${(confidence * 100).toFixed(1)}%`;
+  };
+
+  // Get confidence color
   const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 95) return 'success';
-    if (confidence >= 85) return 'warning';
+    if (confidence >= 0.9) return 'success';
+    if (confidence >= 0.7) return 'warning';
     return 'error';
   };
 
-  // Get unique classification types for filter dropdown
-  const uniqueClassifications = Array.from(
-    new Set(classifications.map(c => c.finalClassification))
-  ).sort();
-
-  if (loading && classifications.length === 0) {
-    return (
-      <Box sx={{ p: 3, backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
-        <Typography variant="h4" gutterBottom>
-          Classification History
-        </Typography>
-        <LinearProgress />
-        <Typography sx={{ mt: 2 }} color="text.secondary">
-          Loading classification data...
-        </Typography>
-      </Box>
-    );
-  }
-
   return (
-    <Box sx={{ p: 3, backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
+    <Box sx={{ flexGrow: 1 }}>
+      {/* Error Alert */}
+      {error && (
+        <Alert
+          severity="error"
+          action={
+            <IconButton
+              aria-label="close"
+              color="inherit"
+              size="small"
+              onClick={clearError}
+            >
+              <CloseIcon fontSize="inherit" />
+            </IconButton>
+          }
+          sx={{ mb: 2 }}
+        >
+          {error}
+        </Alert>
+      )}
+
       {/* Header */}
       <Paper sx={{ p: 3, mb: 3, backgroundColor: 'white' }} elevation={1}>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Box display="flex" alignItems="center">
-            <History sx={{ mr: 2, fontSize: '2rem', color: 'primary.main' }} />
-            <Box>
-              <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                Classification History
-              </Typography>
-              <Typography variant="subtitle1" color="text.secondary">
-                Complete record of all processed items
-              </Typography>
-            </Box>
-          </Box>
-          
-          <Box display="flex" gap={2}>
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+            Classification History
+          </Typography>
+          <Box display="flex" gap={1}>
+            <Tooltip title="Refresh Data">
+              <IconButton onClick={refreshData} disabled={loading}>
+                <Refresh />
+              </IconButton>
+            </Tooltip>
             <Button
               variant="outlined"
-              startIcon={<Refresh />}
-              onClick={fetchClassifications}
+              startIcon={<GetApp />}
+              onClick={downloadData}
               disabled={loading}
             >
-              Refresh
-            </Button>
-            <Button
-              variant="contained"
-              startIcon={<Download />}
-              onClick={handleExportData}
-            >
-              Export Data
+              Export
             </Button>
           </Box>
         </Box>
       </Paper>
 
-      {/* Error Alert */}
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          <Typography variant="subtitle2">Error Loading Data</Typography>
-          {error}
-        </Alert>
-      )}
-
-      {/* Filters and Controls */}
+      {/* Filters */}
       <Paper sx={{ p: 3, mb: 3, backgroundColor: 'white' }} elevation={1}>
-        <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-          Search & Filter
-        </Typography>
         <Grid container spacing={3} alignItems="center">
-          <Grid size={{ xs: 12, md: 4 }}>
+          <Grid size={{ xs: 12, md: 3 }}>
             <TextField
               fullWidth
-              label="Search"
-              variant="outlined"
+              label="Search by Detection ID"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              InputProps={{
-                startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />,
-              }}
+              size="small"
             />
           </Grid>
           
-          <Grid size={{ xs: 12, md: 4 }}>
-            <FormControl fullWidth>
-              <InputLabel>Filter by Classification</InputLabel>
+          <Grid size={{ xs: 12, md: 2 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Classification</InputLabel>
               <Select
-                value={filterBy}
-                label="Filter by Classification"
-                onChange={handleFilterChange}
+                value={classificationFilter}
+                onChange={(e) => setClassificationFilter(e.target.value)}
+                label="Classification"
               >
-                <MenuItem value="">All Classifications</MenuItem>
-                {uniqueClassifications.map((classification) => (
-                  <MenuItem key={classification} value={classification}>
-                    {classification}
-                  </MenuItem>
-                ))}
+                <MenuItem value="">All Types</MenuItem>
+                <MenuItem value="plastic">Plastic</MenuItem>
+                <MenuItem value="metal">Metal</MenuItem>
+                <MenuItem value="glass">Glass</MenuItem>
+                <MenuItem value="paper">Paper</MenuItem>
+                <MenuItem value="cardboard">Cardboard</MenuItem>
               </Select>
             </FormControl>
+          </Grid>
+          
+          <Grid size={{ xs: 12, md: 2 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Confidence</InputLabel>
+              <Select
+                value={confidenceFilter}
+                onChange={(e) => setConfidenceFilter(e.target.value)}
+                label="Confidence"
+              >
+                <MenuItem value="">All Levels</MenuItem>
+                <MenuItem value="high">High (&gt;90%)</MenuItem>
+                <MenuItem value="medium">Medium (70-90%)</MenuItem>
+                <MenuItem value="low">Low (&lt;70%)</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          
+          <Grid size={{ xs: 12, md: 2 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Override Status</InputLabel>
+              <Select
+                value={overrideFilter}
+                onChange={(e) => setOverrideFilter(e.target.value)}
+                label="Override Status"
+              >
+                <MenuItem value="">All Records</MenuItem>
+                <MenuItem value="overridden">Overridden</MenuItem>
+                <MenuItem value="not_overridden">Not Overridden</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          
+          <Grid size={{ xs: 12, md: 3 }}>
+            <Box display="flex" gap={1}>
+              <Button
+                variant="contained"
+                startIcon={<Search />}
+                onClick={applyFilters}
+                disabled={loading}
+              >
+                Search
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={clearFilters}
+                disabled={loading}
+              >
+                Clear
+              </Button>
+            </Box>
           </Grid>
           
           <Grid size={{ xs: 12, md: 4 }}>
@@ -290,81 +324,56 @@ const ClassificationHistory: React.FC = () => {
                   <TableRow key={classification.id} hover>
                     <TableCell>
                       <Typography variant="body2">
-                        {new Date(classification.timestamp).toLocaleString()}
+                        {formatDate(classification.timestamp)}
                       </Typography>
                     </TableCell>
-                    
                     <TableCell>
                       <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        #{classification.id}
+                        #{classification.detectionId || classification.id}
                       </Typography>
                     </TableCell>
-                    
                     <TableCell>
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          {classification.finalClassification}
-                        </Typography>
-                        {classification.isOverridden && (
-                          <Chip 
-                            label="Override Applied"
-                            size="small"
-                            color="warning"
-                            variant="outlined"
-                            sx={{ mt: 0.5 }}
-                          />
-                        )}
-                      </Box>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {classification.finalClassification}
+                      </Typography>
                     </TableCell>
-                    
                     <TableCell>
                       <Chip
-                        label={`${(classification.finalConfidence * 100).toFixed(1)}%`}
+                        label={formatConfidence(classification.finalConfidence)}
+                        color={getConfidenceColor(classification.finalConfidence)}
                         size="small"
-                        color={getConfidenceColor(classification.finalConfidence * 100)}
                         variant="outlined"
                       />
                     </TableCell>
-                    
                     <TableCell>
                       <Typography variant="body2">
-                        {classification.processingTime?.toFixed(0) || 0}ms
+                        {classification.processingTimeMs?.toFixed(0) || '0'}ms
                       </Typography>
                     </TableCell>
-                    
                     <TableCell>
-                      <Box display="flex" gap={0.5}>
-                        {classification.sensorValidation ? (
-                          <>
-                            <Box title="Weight Sensor">
-                              {getValidationIcon(classification.sensorValidation.weight)}
-                            </Box>
-                            <Box title="Metal Detector">
-                              {getValidationIcon(classification.sensorValidation.metal)}
-                            </Box>
-                            <Box title="Humidity Sensor">
-                              {getValidationIcon(classification.sensorValidation.humidity)}
-                            </Box>
-                            <Box title="IR Spectroscopy">
-                              {getValidationIcon(classification.sensorValidation.ir_spectroscopy)}
-                            </Box>
-                          </>
-                        ) : (
-                          <Typography variant="caption" color="text.secondary">
-                            No validation data
-                          </Typography>
-                        )}
-                      </Box>
+                      {classification.isOverridden ? (
+                        <Chip
+                          label="Overridden"
+                          color="warning"
+                          size="small"
+                        />
+                      ) : (
+                        <Chip
+                          label="Original"
+                          color="default"
+                          size="small"
+                        />
+                      )}
                     </TableCell>
-                    
                     <TableCell>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleViewDetails(classification)}
-                        title="View Details"
-                      >
-                        <Visibility />
-                      </IconButton>
+                      <Tooltip title="View Details">
+                        <IconButton
+                          size="small"
+                          onClick={() => showDetails(classification)}
+                        >
+                          <Visibility fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -373,10 +382,10 @@ const ClassificationHistory: React.FC = () => {
           </TableContainer>
 
           {/* Pagination */}
-          <Box display="flex" justifyContent="center" sx={{ mt: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
             <Pagination
               count={totalPages}
-              page={page}
+              page={currentPage}
               onChange={handlePageChange}
               color="primary"
               size="large"
@@ -415,28 +424,27 @@ const ClassificationHistory: React.FC = () => {
                       </TableRow>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 600 }}>Confidence</TableCell>
-                        <TableCell>{(selectedClassification.finalConfidence * 100).toFixed(1)}%</TableCell>
+                        <TableCell>{formatConfidence(selectedClassification.finalConfidence)}</TableCell>
                       </TableRow>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 600 }}>CNN Stage 1</TableCell>
                         <TableCell>
-                          {selectedClassification.cnnStage1Class} 
-                          ({((selectedClassification.cnnStage1Confidence || 0) * 100).toFixed(1)}%)
+                          {selectedClassification.cnnPredictedClass} 
+                          ({formatConfidence(selectedClassification.cnnConfidence)})
                         </TableCell>
                       </TableRow>
-                      {selectedClassification.cnnStage2Class && (
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 600 }}>CNN Stage 2</TableCell>
-                          <TableCell>
-                            {selectedClassification.cnnStage2Class} 
-                            ({((selectedClassification.cnnStage2Confidence || 0) * 100).toFixed(1)}%)
-                          </TableCell>
-                        </TableRow>
-                      )}
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 600 }}>Processing Time</TableCell>
+                        <TableCell>{selectedClassification.processingTimeMs?.toFixed(0) || '0'}ms</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 600 }}>Disposal Location</TableCell>
+                        <TableCell>{selectedClassification.disposalLocation}</TableCell>
+                      </TableRow>
                     </TableBody>
                   </Table>
                 </Grid>
-                
+
                 <Grid size={{ xs: 12, md: 6 }}>
                   <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
                     System Information
@@ -444,82 +452,41 @@ const ClassificationHistory: React.FC = () => {
                   <Table size="small">
                     <TableBody>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>Processing Time</TableCell>
-                        <TableCell>{selectedClassification.processingTime?.toFixed(0) || 0}ms</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Detection ID</TableCell>
+                        <TableCell>{selectedClassification.detectionId}</TableCell>
                       </TableRow>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 600 }}>Timestamp</TableCell>
-                        <TableCell>{new Date(selectedClassification.timestamp).toLocaleString()}</TableCell>
+                        <TableCell>{formatDate(selectedClassification.timestamp)}</TableCell>
                       </TableRow>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>Disposal Location</TableCell>
-                        <TableCell>{selectedClassification.disposalLocation}</TableCell>
-                      </TableRow>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>Decision Path</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>Override Status</TableCell>
                         <TableCell>
-                          {(selectedClassification.decisionPath || 'standard_classification').replace(/_/g, ' → ')}
+                          {selectedClassification.isOverridden ? (
+                            <Chip label="Overridden" color="warning" size="small" />
+                          ) : (
+                            <Chip label="Original" color="success" size="small" />
+                          )}
                         </TableCell>
                       </TableRow>
+                      {selectedClassification.isOverridden && selectedClassification.overrideReason && (
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 600 }}>Override Reason</TableCell>
+                          <TableCell>{selectedClassification.overrideReason}</TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </Grid>
-                
-                {selectedClassification.sensorValidation && (
-                  <Grid size={{ xs: 12 }}>
-                    <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                      Sensor Validation Results
-                    </Typography>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 600 }}>Sensor</TableCell>
-                          <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                          <TableCell sx={{ fontWeight: 600 }}>Result</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {Object.entries(selectedClassification.sensorValidation).map(([sensor, status]) => (
-                          <TableRow key={sensor}>
-                            <TableCell>{sensor.replace('_', ' ').toUpperCase()}</TableCell>
-                            <TableCell>
-                              {getValidationIcon(status as 'pass' | 'fail')}
-                            </TableCell>
-                            <TableCell>
-                              <Chip
-                                label={status.toUpperCase()}
-                                size="small"
-                                color={status === 'pass' ? 'success' : 'error'}
-                                variant="outlined"
-                              />
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </Grid>
-                )}
-                
-                {selectedClassification.overrideInfo?.isOverridden && (
-                  <Grid size={{ xs: 12 }}>
-                    <Alert severity="info" sx={{ mt: 2 }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                        Manual Override Applied
-                      </Typography>
-                      <Typography variant="body2">
-                        Original: {selectedClassification.overrideInfo.originalClassification}
-                      </Typography>
-                      <Typography variant="body2">
-                        Reason: {selectedClassification.overrideInfo.reason}
-                      </Typography>
-                      <Typography variant="body2">
-                        By: {selectedClassification.overrideInfo.overriddenBy} on{' '}
-                        {selectedClassification.overrideInfo.overrideTimestamp && 
-                          new Date(selectedClassification.overrideInfo.overrideTimestamp).toLocaleString()}
-                      </Typography>
-                    </Alert>
-                  </Grid>
-                )}
+
+                <Grid size={{ xs: 12 }}>
+                  <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
+                    Expert System Reasoning
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {selectedClassification.reasoning || 'No reasoning provided'}
+                  </Typography>
+                </Grid>
               </Grid>
             </Box>
           )}

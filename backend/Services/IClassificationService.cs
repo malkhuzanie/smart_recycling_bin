@@ -14,5 +14,8 @@ namespace SmartRecyclingBin.Services
         Task<bool> DeleteClassificationAsync(int id);
         Task<ValidationResult> ValidateClassificationDataAsync(ClassificationRequestDto request);
         Task<List<ClassificationResult>> SearchClassificationsAsync(ClassificationSearchCriteria criteria);
+        Task<ClassificationResult?> GetClassificationWithImageAsync(int id);
+        Task<string?> GetClassificationImageAsync(int id);
+        Task<ImageStorageStats> GetImageStorageStatsAsync();
     }
 }

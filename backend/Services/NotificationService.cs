@@ -72,5 +72,67 @@ namespace SmartRecyclingBin.Services
                 _logger.LogError(ex, $"Error resolving alert {alertId}");
             }
         }
+        
+          public async Task NotifyClassificationProcessedAsync(ClassificationResult result)
+        {
+            try
+            {
+                // Create alerts for important classification events
+                
+                // Low confidence alert
+                if (result.FinalConfidence < 0.6)
+                {
+                    var lowConfidenceAlert = new SystemAlert
+                    {
+                        Severity = "WARNING",
+                        Component = "ClassificationEngine",
+                        Message = $"Low confidence classification: {result.FinalClassification} ({result.FinalConfidence:P1}) for item {result.DetectionId}"
+                    };
+                    await AddAlert(lowConfidenceAlert);
+                }
+
+                // High processing time alert
+                if (result.ProcessingTimeMs > 3000)
+                {
+                    var slowProcessingAlert = new SystemAlert
+                    {
+                        Severity = "INFO",
+                        Component = "ClassificationEngine", 
+                        Message = $"High processing time: {result.ProcessingTimeMs:F0}ms for item {result.DetectionId}"
+                    };
+                    await AddAlert(slowProcessingAlert);
+                }
+
+                // Override notifications
+                if (result.IsOverridden)
+                {
+                    var overrideAlert = new SystemAlert
+                    {
+                        Severity = "INFO",
+                        Component = "ManualOverride",
+                        Message = $"Classification overridden: {result.FinalClassification} → {result.OverrideClassification} by {result.OverriddenBy}"
+                    };
+                    await AddAlert(overrideAlert);
+                }
+
+                // Image capture notifications
+                if (!result.HasImage)
+                {
+                    var noImageAlert = new SystemAlert
+                    {
+                        Severity = "WARNING",
+                        Component = "ImageCapture",
+                        Message = $"No image captured for classification {result.DetectionId}"
+                    };
+                    await AddAlert(noImageAlert);
+                }
+
+                _logger.LogDebug($"Processed notifications for classification {result.Id}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error processing classification notifications for result {result.Id}");
+            }
+        }
     }
 }

@@ -1,5 +1,5 @@
 """
-Updated Arduino Service with Enhanced Integration
+Arduino Service with Enhanced Integration
 Coordinates with CNN service for full pipeline processing
 """
 
@@ -12,8 +12,8 @@ from typing import Dict, Optional, List, Callable
 
 from .hub_client import SignalRHubClient
 
-class EnhancedArduinoService:
-    """Enhanced Arduino Service with CNN service coordination"""
+class ArduinoService:
+    """Arduino Service with CNN service coordination"""
     
     def __init__(self, port: str = '/dev/ttyUSB0', baudrate: int = 9600, 
                  backend_hub_url: str = "http://localhost:5099/hubs/classification"):
@@ -22,7 +22,7 @@ class EnhancedArduinoService:
         self.serial_connection = None
         self.is_connected = False
         self.hub_client = SignalRHubClient(backend_hub_url, "ClassificationHub")
-        self.logger = logging.getLogger("EnhancedArduinoService")
+        self.logger = logging.getLogger("ArduinoService")
         
         # Calibration values
         self.weight_offset = 0.0
@@ -38,8 +38,8 @@ class EnhancedArduinoService:
         self.processing_state = "idle"  # idle, detecting, processing, waiting_removal
         
     async def start_service(self):
-        """Start the enhanced Arduino service"""
-        self.logger.info("🚀 Starting Enhanced Arduino Service...")
+        """Start the Arduino service"""
+        self.logger.info("🚀 Starting Arduino Service...")
         
         try:
             # Connect to SignalR hub
@@ -62,7 +62,7 @@ class EnhancedArduinoService:
             )
             
         except Exception as e:
-            self.logger.error(f"Failed to start enhanced Arduino service: {e}")
+            self.logger.error(f"Failed to start Arduino service: {e}")
             raise
     
     async def connect_arduino(self) -> bool:
@@ -313,6 +313,12 @@ class EnhancedArduinoService:
             except Exception as e:
                 self.logger.error(f"Error in state management worker: {e}")
 
+    def _read_from_serial(self) -> Optional[str]:
+        """Helper function with the blocking serial code."""
+        if self.serial_connection and self.serial_connection.in_waiting > 0:
+            return self.serial_connection.readline().decode('utf-8').strip()
+        return None
+
     async def read_sensors(self) -> Optional[Dict]:
         """Read sensor data from Arduino"""
         if not self.is_connected or not self.serial_connection:
@@ -321,12 +327,14 @@ class EnhancedArduinoService:
         
         try:
             # Send read command to Arduino
-            self.serial_connection.write(b'READ_SENSORS\n')
+            await asyncio.to_thread(self.serial_connection.write, b'READ_SENSORS\n')
+            # self.serial_connection.write(b'READ_SENSORS\n')
             await asyncio.sleep(0.1)  # Give Arduino time to respond
             
             # Read response
             if self.serial_connection.in_waiting > 0:
-                response = self.serial_connection.readline().decode('utf-8').strip()
+                response = await asyncio.to_thread(self._read_from_serial)
+                # response = self.serial_connection.readline().decode('utf-8').strip()
                 
                 if response:
                     # Parse JSON response from Arduino
@@ -340,6 +348,7 @@ class EnhancedArduinoService:
             return None
         except Exception as e:
             self.logger.error(f"Error reading sensors: {e}")
+            self.is_connected = False
             return None
 
     def process_sensor_data(self, raw_data: Dict) -> Dict:
@@ -448,7 +457,7 @@ class EnhancedArduinoService:
                 await asyncio.sleep(30)  # Every 30 seconds
                 
                 heartbeat_data = {
-                    "service_name": "enhanced_arduino_service",
+                    "service_name": "arduino_service",
                     "timestamp": datetime.now().isoformat(),
                     "status": "healthy",
                     "arduino_connected": self.is_connected,
@@ -482,17 +491,17 @@ class EnhancedArduinoService:
             self.is_connected = False
             
         await self.hub_client.disconnect()
-        self.logger.info("🧹 Enhanced Arduino service cleanup complete")
+        self.logger.info("Arduino service cleanup complete")
 
 
 # Service entry point
-async def start_enhanced_arduino_service():
-    """Start the enhanced Arduino service"""
+async def start_arduino_service():
+    """Start the Arduino service"""
     port = os.getenv('ARDUINO_PORT', '/dev/ttyUSB0')
     baudrate = int(os.getenv('ARDUINO_BAUDRATE', '9600'))
     backend_url = os.getenv('BACKEND_URL', 'http://localhost:5099/hubs/classification')
     
-    service = EnhancedArduinoService(port, baudrate, backend_url)
+    service = ArduinoService(port, baudrate, backend_url)
     await service.start_service()
 
 if __name__ == "__main__":
@@ -503,4 +512,4 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    asyncio.run(start_enhanced_arduino_service())
+    asyncio.run(start_arduino_service())

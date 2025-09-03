@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Grid,
@@ -6,37 +6,35 @@ import {
   Typography,
   Card,
   CardContent,
-  Chip,
   LinearProgress,
-  Alert,
+  Chip,
   IconButton,
-  Tooltip,
-  Divider,
-  Stack,
-  Button,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Alert,
+  Button,
+  Tooltip,
 } from '@mui/material';
 import {
-  Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
   TrendingUp,
   Assessment,
   Speed,
   Security,
+  Refresh,
+  Warning,
+  CheckCircle,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
-import { useSignalR } from '../../hooks/useSignalR';
+import { useDashboard } from '../../hooks/useDashboard';
 
 const Dashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
 
+  // Use the specialized dashboard hook
   const {
     connected,
     isConnected,
@@ -49,95 +47,96 @@ const Dashboard: React.FC = () => {
     reconnect,
     requestSystemStatus,
     requestStats,
-  } = useSignalR();
+    refresh,
+  } = useDashboard();
 
   // Handle manual refresh
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([requestSystemStatus(), requestStats()]);
-    } catch (error) {
-      console.error('Failed to refresh data:', error);
+      await refresh();
     } finally {
       setRefreshing(false);
     }
   };
 
-  // Handle reconnect
-  const handleReconnect = async () => {
-    setRefreshing(true);
-    try {
-      await reconnect();
-    } catch (error) {
-      console.error('Failed to reconnect:', error);
-    } finally {
-      setRefreshing(false);
-    }
+  // Helper functions
+  const formatNumber = (num: number | undefined): string => {
+    if (num === undefined || num === null) return '0';
+    return num.toLocaleString();
   };
 
-  // Utility functions
-  const formatPercentage = (value: number | undefined) => {
-    return `${((value || 0) * 100).toFixed(1)}%`;
+  const formatPercentage = (num: number): string => {
+    return `${(num * 100).toFixed(1)}%`;
   };
 
-  const formatNumber = (value: number | undefined) => {
-    return (value || 0).toLocaleString();
+  const formatDate = (dateString: string): string => {
+    return new Date(dateString).toLocaleString();
   };
 
-  const formatDate = (value: Date | string | undefined) => {
-    if (!value) return 'Never';
-    const date = typeof value === 'string' ? new Date(value) : value;
-    return date.toLocaleString();
+  const getSystemStatusColor = () => {
+    if (!isConnected) return 'error';
+    if (!health?.cnnServiceHealthy || !health?.cameraConnected) return 'warning';
+    return 'success';
   };
 
-  const getStatusColor = (isConnected: boolean) => {
-    return isConnected ? 'success' : 'error';
+  const getSystemStatusText = () => {
+    if (!isConnected) return 'Disconnected';
+    if (!health?.cnnServiceHealthy || !health?.cameraConnected) return 'Partial';
+    return 'Operational';
   };
 
-  if (isLoading) {
+  if (isLoading && !stats) {
     return (
-      <Box sx={{ width: '100%', p: 3 }}>
-        <Typography variant="h4" gutterBottom>
-          Smart Recycling Bin Dashboard
-        </Typography>
+      <Box sx={{ width: '100%', mt: 2 }}>
         <LinearProgress />
-        <Typography sx={{ mt: 2 }} color="text.secondary">
-          Connecting to system...
+        <Typography variant="body2" sx={{ mt: 1, textAlign: 'center' }}>
+          Loading dashboard data...
         </Typography>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ p: 3, backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
-      {/* Header */}
-      <Paper sx={{ p: 3, mb: 3, backgroundColor: 'white' }} elevation={1}>
+    <Box sx={{ flexGrow: 1, p: 0 }}>
+      {/* Header with Status and Controls */}
+      <Paper sx={{ p: 2, mb: 3, backgroundColor: 'white' }} elevation={1}>
         <Box display="flex" justifyContent="space-between" alignItems="center">
           <Box>
-            <Typography variant="h4" component="h1" sx={{ fontWeight: 600, mb: 1 }}>
-              Smart Recycling Control Center
+            <Typography variant="h5" sx={{ fontWeight: 600, mb: 1 }}>
+              System Dashboard
             </Typography>
-            <Typography variant="subtitle1" color="text.secondary">
-              Real-time Monitoring & Classification System
-            </Typography>
+            <Box display="flex" alignItems="center" gap={2}>
+              <Chip
+                icon={getSystemStatusColor() === 'success' ? <CheckCircle /> : 
+                      getSystemStatusColor() === 'warning' ? <Warning /> : <ErrorIcon />}
+                label={`System ${getSystemStatusText()}`}
+                color={getSystemStatusColor()}
+                variant="filled"
+              />
+              <Chip
+                label={`${stats?.itemsToday || 0} items processed today`}
+                variant="outlined"
+                color="primary"
+              />
+            </Box>
           </Box>
-          <Box display="flex" alignItems="center" gap={2}>
-            <Chip
-              label={isConnected ? 'System Online' : 'System Offline'}
-              color={getStatusColor(isConnected)}
-              variant="outlined"
-            />
+          <Box display="flex" gap={1}>
             <Tooltip title="Refresh Data">
-              <IconButton onClick={handleRefresh} disabled={refreshing}>
-                <RefreshIcon />
+              <IconButton 
+                onClick={handleRefresh} 
+                disabled={refreshing}
+                color="primary"
+              >
+                <Refresh />
               </IconButton>
             </Tooltip>
             {!isConnected && (
-              <Button 
-                variant="outlined" 
-                color="error" 
-                onClick={handleReconnect}
-                disabled={refreshing}
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={reconnect}
+                size="small"
               >
                 Reconnect
               </Button>
@@ -149,84 +148,17 @@ const Dashboard: React.FC = () => {
       {/* Error Alert */}
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
+          <Typography variant="subtitle2">System Error</Typography>
+          <Typography variant="body2">{error}</Typography>
         </Alert>
       )}
 
-      {/* System Status */}
+      {/* Key Metrics Cards */}
       <Paper sx={{ p: 3, mb: 3, backgroundColor: 'white' }} elevation={1}>
         <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-          System Components Status
+          Today's Performance
         </Typography>
-        <Grid container spacing={3}>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card variant="outlined">
-              <CardContent sx={{ textAlign: 'center' }}>
-                <Typography color="text.secondary" gutterBottom>
-                  Classification Hub
-                </Typography>
-                <Chip
-                  label={connected.classification ? 'Connected' : 'Disconnected'}
-                  color={getStatusColor(connected.classification)}
-                  icon={connected.classification ? <CheckCircleIcon /> : <ErrorIcon />}
-                  variant="outlined"
-                />
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card variant="outlined">
-              <CardContent sx={{ textAlign: 'center' }}>
-                <Typography color="text.secondary" gutterBottom>
-                  Dashboard Hub
-                </Typography>
-                <Chip
-                  label={connected.dashboard ? 'Connected' : 'Disconnected'}
-                  color={getStatusColor(connected.dashboard)}
-                  icon={connected.dashboard ? <CheckCircleIcon /> : <ErrorIcon />}
-                  variant="outlined"
-                />
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card variant="outlined">
-              <CardContent sx={{ textAlign: 'center' }}>
-                <Typography color="text.secondary" gutterBottom>
-                  CNN Service
-                </Typography>
-                <Chip
-                  label={health.cnnServiceHealthy ? 'Healthy' : 'Issues Detected'}
-                  color={getStatusColor(health.cnnServiceHealthy)}
-                  icon={health.cnnServiceHealthy ? <CheckCircleIcon /> : <WarningIcon />}
-                  variant="outlined"
-                />
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card variant="outlined">
-              <CardContent sx={{ textAlign: 'center' }}>
-                <Typography color="text.secondary" gutterBottom>
-                  Sensor Array
-                </Typography>
-                <Chip
-                  label={health.arduinoConnected ? 'Connected' : 'Disconnected'}
-                  color={getStatusColor(health.arduinoConnected)}
-                  icon={health.arduinoConnected ? <CheckCircleIcon /> : <ErrorIcon />}
-                  variant="outlined"
-                />
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      </Paper>
-
-      {/* Key Performance Metrics */}
-      <Paper sx={{ p: 3, mb: 3, backgroundColor: 'white' }} elevation={1}>
-        <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-          Performance Metrics
-        </Typography>
+        
         <Grid container spacing={3}>
           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card variant="outlined">
@@ -234,10 +166,10 @@ const Dashboard: React.FC = () => {
                 <Box display="flex" alignItems="center" justifyContent="space-between">
                   <Box>
                     <Typography color="text.secondary" variant="body2">
-                      Items Today
+                      Items Processed
                     </Typography>
                     <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                      {formatNumber(stats.itemsToday)}
+                      {formatNumber(stats?.itemsToday)}
                     </Typography>
                   </Box>
                   <TrendingUp color="primary" sx={{ fontSize: 40 }} />
@@ -251,10 +183,10 @@ const Dashboard: React.FC = () => {
                 <Box display="flex" alignItems="center" justifyContent="space-between">
                   <Box>
                     <Typography color="text.secondary" variant="body2">
-                      Accuracy Rate
+                      Average Confidence
                     </Typography>
                     <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                      {formatPercentage(stats.accuracyRate)}
+                      {stats?.averageConfidence ? formatPercentage(stats.averageConfidence) : '0%'}
                     </Typography>
                   </Box>
                   <Assessment color="success" sx={{ fontSize: 40 }} />
@@ -268,10 +200,10 @@ const Dashboard: React.FC = () => {
                 <Box display="flex" alignItems="center" justifyContent="space-between">
                   <Box>
                     <Typography color="text.secondary" variant="body2">
-                      Processing Time
+                      Avg Processing Time
                     </Typography>
                     <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                      {health.avgProcessingTimeMs}ms
+                      {stats?.averageProcessingTime?.toFixed(0) || '0'}ms
                     </Typography>
                   </Box>
                   <Speed color="warning" sx={{ fontSize: 40 }} />
@@ -288,7 +220,7 @@ const Dashboard: React.FC = () => {
                       Override Rate
                     </Typography>
                     <Typography variant="h4" sx={{ fontWeight: 600 }}>
-                      {stats.overrideRate.toFixed(1)}%
+                      {stats?.overrideRate ? stats.overrideRate.toFixed(1) : '0.0'}%
                     </Typography>
                   </Box>
                   <Security color="info" sx={{ fontSize: 40 }} />
@@ -320,7 +252,7 @@ const Dashboard: React.FC = () => {
                     </TableRow>
                     <TableRow>
                       <TableCell sx={{ fontWeight: 600 }}>Processing Time</TableCell>
-                      <TableCell>{latestClassification.processingTime}ms</TableCell>
+                      <TableCell>{latestClassification.processingTimeMs}ms</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell sx={{ fontWeight: 600 }}>Disposal Location</TableCell>
@@ -338,70 +270,71 @@ const Dashboard: React.FC = () => {
                 <Typography variant="body1">
                   Waiting for classification data...
                 </Typography>
-                <Typography variant="body2" sx={{ mt: 1 }}>
-                  The system is ready to process incoming items
-                </Typography>
               </Box>
             )}
           </Paper>
         </Grid>
 
-        {/* System Summary */}
+        {/* System Health */}
         <Grid size={{ xs: 12, lg: 4 }}>
           <Paper sx={{ p: 3, backgroundColor: 'white' }} elevation={1}>
             <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-              System Summary
+              System Health
             </Typography>
-            <Stack spacing={3}>
-              <Box>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Total Items Processed
-                </Typography>
-                <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                  {formatNumber(stats.totalItems)}
-                </Typography>
+            {health ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Typography variant="body2">Camera</Typography>
+                  <Chip
+                    label={health.cameraConnected ? 'Connected' : 'Disconnected'}
+                    color={health.cameraConnected ? 'success' : 'error'}
+                    size="small"
+                  />
+                </Box>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Typography variant="body2">CNN Service</Typography>
+                  <Chip
+                    label={health.cnnServiceHealthy ? 'Healthy' : 'Unhealthy'}
+                    color={health.cnnServiceHealthy ? 'success' : 'error'}
+                    size="small"
+                  />
+                </Box>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Typography variant="body2">Arduino</Typography>
+                  <Chip
+                    label={health.arduinoConnected ? 'Connected' : 'Disconnected'}
+                    color={health.arduinoConnected ? 'success' : 'error'}
+                    size="small"
+                  />
+                </Box>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Typography variant="body2">Expert System</Typography>
+                  <Chip
+                    label={health.expertSystemHealthy ? 'Healthy' : 'Unhealthy'}
+                    color={health.expertSystemHealthy ? 'success' : 'error'}
+                    size="small"
+                  />
+                </Box>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Typography variant="body2">Items in Queue</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {health.itemsInQueue || 0}
+                  </Typography>
+                </Box>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Typography variant="body2">Processing</Typography>
+                  <Chip
+                    label={health.isProcessing ? 'Active' : 'Idle'}
+                    color={health.isProcessing ? 'warning' : 'default'}
+                    size="small"
+                  />
+                </Box>
               </Box>
-              
-              <Divider />
-              
-              <Box>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Weekly Progress
-                </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {formatNumber(stats.itemsThisWeek)} items
-                </Typography>
-                <LinearProgress 
-                  variant="determinate" 
-                  value={85} 
-                  sx={{ 
-                    mt: 1,
-                    height: 8
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                  85% of weekly target
-                </Typography>
-              </Box>
-              
-              <Box>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  System Uptime
-                </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {health.systemUptime.toFixed(1)} hours
-                </Typography>
-              </Box>
-              
-              <Box>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Memory Usage
-                </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {(health.memoryUsageMB / 1024).toFixed(1)} GB
-                </Typography>
-              </Box>
-            </Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                System health data unavailable
+              </Typography>
+            )}
           </Paper>
         </Grid>
       </Grid>
@@ -409,25 +342,26 @@ const Dashboard: React.FC = () => {
       {/* Classification Breakdown */}
       <Paper sx={{ p: 3, mt: 3, backgroundColor: 'white' }} elevation={1}>
         <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-          Today's Classification Breakdown
+          Classification Breakdown
         </Typography>
         <TableContainer>
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 600 }}>Material Type</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Category</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 600 }}>Count</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 600 }}>Percentage</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Progress</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {Object.entries(stats.classificationBreakdown || {}).map(([category, count]) => {
-                const percentage = (count / stats.itemsToday) * 100;
+              {Object.entries(stats?.classificationBreakdown || {}).map(([category, count]) => {
+                const numCount = typeof count === 'number' ? count : 0;
+                const percentage = stats?.itemsToday ? (numCount / stats.itemsToday) * 100 : 0;
                 return (
                   <TableRow key={category}>
                     <TableCell>{category}</TableCell>
-                    <TableCell align="right">{formatNumber(count)}</TableCell>
+                    <TableCell align="right">{formatNumber(numCount)}</TableCell>
                     <TableCell align="right">{percentage.toFixed(1)}%</TableCell>
                     <TableCell>
                       <Box sx={{ width: '100%', maxWidth: 200 }}>
@@ -449,13 +383,13 @@ const Dashboard: React.FC = () => {
       {/* Alert Display */}
       {latestAlert && (
         <Alert
-          severity={latestAlert.level as 'error' | 'warning' | 'info'}
+          severity="warning"
           sx={{ mt: 3 }}
         >
           <Typography variant="subtitle2">
-            {latestAlert.source} - {formatDate(latestAlert.timestamp)}
+            System Alert - {formatDate(new Date().toISOString())}
           </Typography>
-          <Typography variant="body2">{latestAlert.message}</Typography>
+          <Typography variant="body2">{latestAlert}</Typography>
         </Alert>
       )}
     </Box>

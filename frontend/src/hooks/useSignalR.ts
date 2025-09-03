@@ -1,498 +1,539 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import signalRService from '../services/signalr';
-import { 
-  ClassificationResult, 
-  ClassificationTriggeredMessage,
-  SystemAlert,
-  DashboardUpdate,
-  SystemStats,
-  SystemHealth 
-} from '../types';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import * as signalR from '@microsoft/signalr';
 
-interface SignalRState {
-  connected: {
-    classification: boolean;
-    dashboard: boolean;
-  };
-  connectionAttempts: number;
-  lastConnectionTime: Date | null;
-  latestClassification: ClassificationResult | null;
-  latestTrigger: ClassificationTriggeredMessage | null;
-  latestAlert: SystemAlert | null;
-  latestDashboardUpdate: DashboardUpdate | null;
-  stats: SystemStats;
-  health: SystemHealth;
-  isLoading: boolean;
-  error: string | null;
+interface SignalRMessage {
+  type: string;
+  data: any;
+  timestamp: string;
 }
 
-// Default values using camelCase to match API
-const defaultStats: SystemStats = {
-  totalItems: 0,
-  accuracyRate: 0,
-  avgProcessingTime: 0,
-  classificationBreakdown: {},
-  overrideRate: 0,
-  itemsToday: 0,
-  itemsThisWeek: 0,
-  itemsThisMonth: 0,
-  lastClassification: new Date(),
-  hourlyBreakdown: []
-};
+interface UseSignalRReturn {
+  isConnected: boolean;
+  connectionState: signalR.HubConnectionState;
+  lastMessage: SignalRMessage | null;
+  error: string | null;
+  sendMessage: (method: string, ...args: any[]) => Promise<boolean>;
+  joinGroup: (groupName: string) => Promise<boolean>;
+  leaveGroup: (groupName: string) => Promise<boolean>;
+  reconnect: () => Promise<boolean>;
+}
 
-const defaultHealth: SystemHealth = {
-  timestamp: new Date(),
-  cameraConnected: false,
-  arduinoConnected: false,
-  cnnServiceHealthy: false,
-  expertSystemHealthy: false,
-  avgProcessingTimeMs: 0,
-  totalItemsProcessed: 0,
-  accuracyRate: 0,
-  classificationCounts: {},
-  systemUptime: 0,
-  memoryUsageMB: 0,
-  cpuUsagePercent: 0,
-  isHealthy: false
-};
+export type { UseSignalRReturn };
 
-export const useSignalR = () => {
-  const [state, setState] = useState<SignalRState>({
-    connected: {
-      classification: false,
-      dashboard: false,
-    },
-    connectionAttempts: 0,
-    lastConnectionTime: null,
-    latestClassification: null,
-    latestTrigger: null,
-    latestAlert: null,
-    latestDashboardUpdate: null,
-    stats: defaultStats,
-    health: defaultHealth,
-    isLoading: true,
-    error: null,
-  });
+interface UseSignalROptions {
+  autoConnect?: boolean;
+  reconnectAttempts?: number;
+  reconnectInterval?: number;
+  autoJoinGroup?: string; // The group to auto-join (e.g., "Classification", "Dashboard")
+  onConnected?: () => void;
+  onDisconnected?: (error?: Error) => void;
+  onReconnecting?: () => void;
+  onReconnected?: () => void;
+  onError?: (error: Error) => void;
+}
 
-  const initializationRef = useRef<{
-    initialized: boolean;
-    initPromise: Promise<void> | null;
-    cleanup: (() => Promise<void>) | null;
-  }>({
-    initialized: false,
-    initPromise: null,
-    cleanup: null
-  });
+type HubType = 'classification' | 'dashboard' | 'systemhealth';
 
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
-  const connectionCheckInterval = useRef<NodeJS.Timeout | undefined>(undefined);
+const useSignalR = (
+  hubUrl: string,
+  options: UseSignalROptions = {}
+): UseSignalRReturn => {
+  const {
+    autoConnect = true,
+    reconnectAttempts = 5,
+    reconnectInterval = 5000,
+    autoJoinGroup,
+    onConnected,
+    onDisconnected,
+    onReconnecting,
+    onReconnected,
+    onError,
+  } = options;
 
-  // Connection state change handler with improved error handling
-  const handleConnectionStateChange = useCallback((connected: boolean, hubName: string) => {
-    console.log(`useSignalR: ${hubName} hub connection state changed:`, connected);
-    
-    setState(prev => {
-      const newConnectedState = {
-        ...prev.connected,
-        [hubName]: connected,
-      };
-      
-      const isFullyConnected = newConnectedState.classification && newConnectedState.dashboard;
-      
-      return {
-        ...prev,
-        connected: newConnectedState,
-        lastConnectionTime: connected ? new Date() : prev.lastConnectionTime,
-        error: !isFullyConnected && !prev.isLoading ? 
-          `Connection issue: ${hubName} hub ${connected ? 'connected' : 'disconnected'}` : 
-          null,
-        isLoading: false,
-      };
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionState, setConnectionState] = useState<signalR.HubConnectionState>(
+    signalR.HubConnectionState.Disconnected
+  );
+  const [lastMessage, setLastMessage] = useState<SignalRMessage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const connectionRef = useRef<signalR.HubConnection | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isConnectingRef = useRef(false);
+  const hasJoinedGroupRef = useRef(false);
+
+  // Determine the hub type from URL
+  const getHubType = useCallback((url: string): HubType => {
+    if (url.includes('/classification')) return 'classification';
+    if (url.includes('/dashboard')) return 'dashboard';
+    if (url.includes('/systemhealth')) return 'systemhealth';
+    return 'classification';
+  }, []);
+
+
+  // Create SignalR connection
+  const createConnection = useCallback(() => {
+    if (connectionRef.current && 
+        connectionRef.current.state !== signalR.HubConnectionState.Disconnected) {
+      return connectionRef.current;
+    }
+
+    // Clean up any existing connection
+    if (connectionRef.current) {
+      connectionRef.current.stop().catch(() => {});
+    }
+
+    const connection = new signalR.HubConnectionBuilder()
+      .withUrl(hubUrl, {
+        // Try LongPolling first to bypass WebSocket issues
+        transport: signalR.HttpTransportType.LongPolling,
+        skipNegotiation: false,
+        timeout: 30000,
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      .withAutomaticReconnect({
+        nextRetryDelayInMilliseconds: (retryContext) => {
+          if (retryContext.previousRetryCount >= reconnectAttempts) {
+            return null;
+          }
+          return Math.min(1000 * Math.pow(2, retryContext.previousRetryCount), 30000);
+        }
+      })
+      .configureLogging(signalR.LogLevel.Debug) // More verbose logging for debugging
+      .build();
+
+    // Connection state change handlers
+    connection.onclose((error) => {
+      console.log('SignalR connection closed:', error?.message);
+      setIsConnected(false);
+      setConnectionState(signalR.HubConnectionState.Disconnected);
+      setError(error?.message || 'Connection closed');
+      hasJoinedGroupRef.current = false;
+      onDisconnected?.(error);
     });
 
-    if (connected) {
-      console.log(`useSignalR: ${hubName} hub connected successfully`);
-    } else {
-      console.log(`useSignalR: ${hubName} hub disconnected`);
+    connection.onreconnecting((error) => {
+      console.log('SignalR reconnecting:', error?.message);
+      setIsConnected(false);
+      setConnectionState(signalR.HubConnectionState.Reconnecting);
+      setError('Reconnecting...');
+      hasJoinedGroupRef.current = false;
+      onReconnecting?.();
+    });
+
+    connection.onreconnected(async (connectionId) => {
+      console.log('SignalR reconnected with ID:', connectionId);
+      setIsConnected(true);
+      setConnectionState(signalR.HubConnectionState.Connected);
+      setError(null);
+      reconnectAttemptsRef.current = 0;
+      hasJoinedGroupRef.current = false;
+      
+      // Auto-rejoin group after reconnection
+      if (autoJoinGroup) {
+        setTimeout(() => {
+          joinGroupInternal(autoJoinGroup);
+        }, 1000);
+      }
+      
+      onReconnected?.();
+    });
+
+    // Register message handlers
+    connection.on('ConnectionEstablished', (data) => {
+      console.log('SignalR connection established:', data);
+      setLastMessage({
+        type: 'connection_established',
+        data,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Classification hub specific handlers
+    connection.on('ClassificationResult', (data) => {
+      console.log('Received classification result:', data);
+      setLastMessage({
+        type: 'classification_result',
+        data,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    connection.on('ProcessingStatus', (data) => {
+      console.log('Received processing status:', data);
+      setLastMessage({
+        type: 'processing_status',
+        data,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    connection.on('ClassificationOverridden', (data) => {
+      console.log('Classification overridden:', data);
+      setLastMessage({
+        type: 'classification_overridden',
+        data,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Dashboard hub specific handlers
+    connection.on('DashboardUpdate', (data) => {
+      console.log('Received dashboard update:', data);
+      setLastMessage({
+        type: 'dashboard_update',
+        data,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    connection.on('SystemStatus', (data) => {
+      console.log('Received system status:', data);
+      setLastMessage({
+        type: 'system_status',
+        data,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Group join confirmations
+    connection.on('JoinedClassificationGroup', (data) => {
+      console.log('Joined classification group:', data);
+      hasJoinedGroupRef.current = true;
+    });
+
+    connection.on('JoinedDashboardGroup', (data) => {
+      console.log('Joined dashboard group:', data);
+      hasJoinedGroupRef.current = true;
+    });
+
+
+    // ====================================================================
+    // handlers for SystemHealthHub methods
+    // ====================================================================
+    connection.on('InitialHealthStatus', (data) => {
+      console.log('Received Initial Health Status:', data);
+      setLastMessage({
+        type: 'InitialHealthStatus', 
+        data,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    connection.on('HealthUpdate', (data) => {
+      console.log('Received Health Update:', data);
+      setLastMessage({
+        type: 'HealthUpdate', 
+        data,
+        timestamp: new Date().toISOString()
+      });
+    });
+    // ====================================================================
+
+
+    // Error handler
+    connection.on('Error', (message) => {
+      console.error('SignalR error:', message);
+      setError(message);
+      setLastMessage({
+        type: 'error',
+        data: { message },
+        timestamp: new Date().toISOString()
+      });
+      onError?.(new Error(message));
+    });
+
+    connectionRef.current = connection;
+    return connection;
+  }, [hubUrl, reconnectAttempts, autoJoinGroup, onConnected, onDisconnected, onReconnecting, onReconnected, onError]);
+
+  // Internal join group method
+  const joinGroupInternal = useCallback(async (groupName: string): Promise<boolean> => {
+    const connection = connectionRef.current;
+    if (!connection || connection.state !== signalR.HubConnectionState.Connected) {
+      console.warn('Cannot join group: SignalR not connected');
+      return false;
+    }
+
+    if (hasJoinedGroupRef.current) {
+      console.log('Already joined group');
+      return true;
+    }
+
+    try {
+      const hubType = getHubType(hubUrl);
+      let methodName: string;
+
+      // Use correct method based on hub type and group
+      
+      if (hubType === 'classification') {
+        methodName = groupName === 'Dashboard' ? 'JoinDashboardGroup' : 'JoinClassificationGroup';
+      } else if (hubType === 'dashboard') {
+        methodName = 'JoinDashboardGroup';
+      } else if (hubType === 'systemhealth') { 
+        methodName = 'JoinHealthGroup'; 
+      } else {
+        methodName = 'JoinGroup';
+      }
+
+      await connection.invoke(methodName);
+      console.log(`Successfully joined group using method: ${methodName}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to join group ${groupName}:`, error);
+      setError(error instanceof Error ? error.message : 'Failed to join group');
+      return false;
+    }
+  }, [hubUrl, getHubType]);
+
+  // Connect to SignalR hub
+  const connect = useCallback(async (): Promise<boolean> => {
+    if (isConnectingRef.current) {
+      console.log('Connection attempt already in progress');
+      return false;
+    }
+
+    try {
+      isConnectingRef.current = true;
+      console.log(`Attempting to connect to SignalR at: ${hubUrl}`);
+      
+      const connection = createConnection();
+      
+      if (connection.state === signalR.HubConnectionState.Connected) {
+        setIsConnected(true);
+        setConnectionState(signalR.HubConnectionState.Connected);
+        
+        // Auto-join group if specified
+        if (autoJoinGroup && !hasJoinedGroupRef.current) {
+          setTimeout(() => {
+            joinGroupInternal(autoJoinGroup);
+          }, 1000);
+        }
+        
+        return true;
+      }
+
+      if (connection.state === signalR.HubConnectionState.Connecting ||
+          connection.state === signalR.HubConnectionState.Reconnecting) {
+        console.log('Connection already in progress, waiting...');
+        return false;
+      }
+
+      setConnectionState(signalR.HubConnectionState.Connecting);
+      console.log('Starting SignalR connection...');
+      
+      await connection.start();
+      
+      console.log('SignalR connection started successfully');
+      setIsConnected(true);
+      setConnectionState(signalR.HubConnectionState.Connected);
+      setError(null);
+      reconnectAttemptsRef.current = 0;
+      
+      onConnected?.();
+
+      // Auto-join group if specified
+      if (autoJoinGroup) {
+        setTimeout(() => {
+          joinGroupInternal(autoJoinGroup);
+        }, 1000);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Failed to connect to SignalR:', error);
+      console.error('Connection URL:', hubUrl);
+      console.error('Error details:', error instanceof Error ? error.message : error);
+      
+      setIsConnected(false);
+      setConnectionState(signalR.HubConnectionState.Disconnected);
+      
+      // Provide more specific error messages
+      let errorMessage = 'Connection failed';
+      if (error instanceof Error) {
+        if (error.message.includes('negotiation')) {
+          errorMessage = 'Cannot reach backend server. Please check if the backend is running.';
+        } else if (error.message.includes('CORS')) {
+          errorMessage = 'CORS policy error. Please check backend CORS configuration.';
+        } else if (error.message.includes('timeout')) {
+          errorMessage = 'Connection timeout. Please check network connectivity.';
+        } else {
+          errorMessage = `Connection failed: ${error.message}`;
+        }
+      }
+      
+      setError(errorMessage);
+      onError?.(error instanceof Error ? error : new Error(errorMessage));
+      return false;
+    } finally {
+      isConnectingRef.current = false;
+    }
+  }, [createConnection, onConnected, onError, autoJoinGroup, joinGroupInternal, hubUrl]);
+
+  // Disconnect from SignalR hub
+  const disconnect = useCallback(async () => {
+    try {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+
+      const connection = connectionRef.current;
+      if (connection && connection.state !== signalR.HubConnectionState.Disconnected) {
+        await connection.stop();
+      }
+      
+      connectionRef.current = null;
+      setIsConnected(false);
+      setConnectionState(signalR.HubConnectionState.Disconnected);
+      setError(null);
+      hasJoinedGroupRef.current = false;
+      isConnectingRef.current = false;
+    } catch (error) {
+      console.error('Error disconnecting from SignalR:', error);
     }
   }, []);
 
-  // Classification result handler with better data processing
-  const handleClassificationResult = useCallback((result: any) => {
+  // Send message to hub
+  const sendMessage = useCallback(async (method: string, ...args: any[]): Promise<boolean> => {
     try {
-      // Handle both ClassificationResult and ClassificationResponseDto formats
-      const classification: ClassificationResult = {
-        id: result.Id || result.id || 0,
-        timestamp: result.Timestamp || result.timestamp || new Date(),
-        finalClassification: result.FinalClassification || result.finalClassification || 'unknown',
-        finalConfidence: result.FinalConfidence || result.finalConfidence || 0,
-        disposalLocation: result.DisposalLocation || result.disposalLocation || 'unknown',
-        processingTime: result.ProcessingTimeMs || result.processingTime || 0,
-        isOverridden: result.IsOverridden || result.isOverridden || false,
-        validationResults: result.ValidationResults || result.validationResults,
-        // Add additional properties with safe defaults
-        cnnPredictedClass: result.CnnPredictedClass || result.cnnPredictedClass,
-        cnnConfidence: result.CnnConfidence || result.cnnConfidence,
-        weightGrams: result.WeightGrams || result.weightGrams || 0,
-        reasoning: result.Reasoning || result.reasoning
+      const connection = connectionRef.current;
+      if (!connection || connection.state !== signalR.HubConnectionState.Connected) {
+        console.warn('Cannot send message: SignalR not connected');
+        return false;
+      }
+
+      await connection.invoke(method, ...args);
+      return true;
+    } catch (error) {
+      console.error(`Failed to send message ${method}:`, error);
+      setError(error instanceof Error ? error.message : 'Failed to send message');
+      return false;
+    }
+  }, []);
+
+  // Join a SignalR group
+  const joinGroup = useCallback(async (groupName: string): Promise<boolean> => {
+    return await joinGroupInternal(groupName);
+  }, [joinGroupInternal]);
+
+  // Leave a SignalR group
+  const leaveGroup = useCallback(async (groupName: string): Promise<boolean> => {
+    try {
+      const connection = connectionRef.current;
+      if (!connection || connection.state !== signalR.HubConnectionState.Connected) {
+        console.warn('Cannot leave group: SignalR not connected');
+        return false;
+      }
+
+      const hubType = getHubType(hubUrl);
+      const methodName = hubType === 'dashboard' ? 'LeaveDashboardGroup' : 'LeaveClassificationGroup';
+      
+      await connection.invoke(methodName, groupName);
+      hasJoinedGroupRef.current = false;
+      return true;
+    } catch (error) {
+      console.error(`Failed to leave group ${groupName}:`, error);
+      return false;
+    }
+  }, [hubUrl, getHubType]);
+
+  // Manual reconnect
+  const reconnect = useCallback(async (): Promise<boolean> => {
+    await disconnect();
+    // Wait a bit before reconnecting
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return await connect();
+  }, [disconnect, connect]);
+
+  // Handle automatic reconnection attempts (only for unexpected disconnections) - FIXED
+  useEffect(() => {
+    if (!isConnected && 
+        connectionState === signalR.HubConnectionState.Disconnected && 
+        reconnectAttemptsRef.current > 0 && // Only if we had connected before
+        reconnectAttemptsRef.current < reconnectAttempts &&
+        !isConnectingRef.current &&
+        autoConnect) {
+      
+      const handleReconnect = async () => {
+        reconnectAttemptsRef.current += 1;
+        console.log(`Attempting to reconnect (${reconnectAttemptsRef.current}/${reconnectAttempts})`);
+        
+        const success = await connect();
+        if (!success && reconnectAttemptsRef.current < reconnectAttempts) {
+          reconnectTimeoutRef.current = setTimeout(handleReconnect, reconnectInterval);
+        }
       };
 
-      setState(prev => ({
-        ...prev,
-        latestClassification: classification,
-      }));
-    } catch (error) {
-      console.error('Error processing classification result:', error);
-    }
-  }, []);
-
-  // Dashboard update handler with improved data processing
-  const handleDashboardUpdate = useCallback((update: DashboardUpdate) => {
-    try {
-      setState(prev => {
-        const newState = {
-          ...prev,
-          latestDashboardUpdate: update,
-        };
-
-        // Handle different types of dashboard updates
-        switch (update.type) {
-          case 'stats':
-            newState.stats = {
-              ...defaultStats,
-              ...update.data,
-            };
-            break;
-        
-          case 'status':
-          case 'initial_status': {
-            const healthData = update.type === 'status' ? update.data : update.data?.healthMetrics;
-            const statsData = update.data?.stats;
-            if (healthData) {
-                // *** THE FIX: Manually construct the health object ***
-                newState.health = {
-                  timestamp: healthData.timestamp || prev.health.timestamp,
-                  cameraConnected: healthData.cameraConnected,
-                  arduinoConnected: healthData.arduinoConnected,
-                  cnnServiceHealthy: healthData.cnnServiceHealthy,
-                  expertSystemHealthy: healthData.expertSystemHealthy,
-                  avgProcessingTimeMs: healthData.avgProcessingTimeMs,
-                  totalItemsProcessed: healthData.totalItemsProcessed,
-                  accuracyRate: healthData.accuracyRate,
-                  classificationCounts: healthData.classificationCounts || prev.health.classificationCounts,
-                  systemUptime: healthData.systemUptime,
-                  memoryUsageMB: healthData.memoryUsageMB,
-                  cpuUsagePercent: healthData.cpuUsagePercent || 0,
-                  isHealthy: healthData.cnnServiceHealthy && healthData.expertSystemHealthy && healthData.cameraConnected && healthData.arduinoConnected,
-                };
-            }
-            if (statsData) {
-              newState.stats = { ...defaultStats, ...statsData };
-            }
-            break;
-          }
-        
-          case 'alert':
-            newState.latestAlert = update.data;
-            break;
-
-          case 'classification':
-            if (update.data) {
-              newState.latestClassification = update.data;
-            }
-            break;
-        }
-        
-        console.log("Updated state from dashboard update:", newState);
-        return newState;
-      });
-    } catch (error) {
-      console.error('Error processing dashboard update:', error);
-    }
-  }, []);
-
-  // System alert handler
-  const handleSystemAlert = useCallback((alert: SystemAlert) => {
-    setState(prev => ({
-      ...prev,
-      latestAlert: alert,
-    }));
-  }, []);
-
-  // Classification triggered handler  
-  const handleClassificationTriggered = useCallback((data: ClassificationTriggeredMessage) => {
-    setState(prev => ({
-      ...prev,
-      latestTrigger: data,
-    }));
-  }, []);
-
-  // Initialize connections with better state management
-  const initializeConnections = useCallback(async (): Promise<void> => {
-    // Prevent multiple initializations
-    if (initializationRef.current.initialized) {
-      console.log('useSignalR: Already initialized, skipping...');
-      return;
+      reconnectTimeoutRef.current = setTimeout(handleReconnect, reconnectInterval);
     }
 
-    // Return existing promise if initialization is in progress
-    if (initializationRef.current.initPromise) {
-      console.log('useSignalR: Initialization in progress, waiting...');
-      return initializationRef.current.initPromise;
-    }
-
-    // Create initialization promise
-    initializationRef.current.initPromise = (async () => {
-      try {
-        setState(prev => ({
-          ...prev,
-          connectionAttempts: prev.connectionAttempts + 1,
-          isLoading: true,
-          error: null,
-        }));
-
-        console.log('useSignalR: Setting up event handlers...');
-        
-        // Set up event handlers before connecting
-        signalRService.onConnectionStateChange(handleConnectionStateChange);
-        signalRService.onClassificationResultReceived(handleClassificationResult);
-        signalRService.onClassificationTriggeredReceived(handleClassificationTriggered);
-        signalRService.onSystemAlertReceived(handleSystemAlert);
-        signalRService.onDashboardUpdateReceived(handleDashboardUpdate);
-
-        console.log('useSignalR: Starting connection process...');
-
-        // Start connections with improved error handling
-        const connectionResults = await Promise.allSettled([
-          signalRService.startClassificationHub(),
-          signalRService.startDashboardHub()
-        ]);
-
-        // Check if at least one connection succeeded
-        const hasConnection = connectionResults.some(result => result.status === 'fulfilled');
-        
-        if (!hasConnection) {
-          throw new Error('Failed to establish any SignalR connections');
-        }
-
-        // Check connection health
-        const healthCheck = await signalRService.checkConnectionHealth();
-        console.log('useSignalR: Connection health check:', healthCheck);
-
-        initializationRef.current.initialized = true;
-
-        // Request initial data after connections are stable
-        setTimeout(async () => {
-          try {
-            if (signalRService.dashboardConnected) {
-              console.log('useSignalR: Requesting initial data...');
-              await requestSystemStatus();
-              await requestStats();
-              console.log('useSignalR: Initial data requests completed');
-            } else {
-              console.warn('useSignalR: Dashboard hub not ready for initial data requests');
-            }
-          } catch (error) {
-            console.error('useSignalR: Failed to request initial data:', error);
-            setState(prev => ({
-              ...prev,
-              error: 'Failed to load initial data'
-            }));
-          }
-        }, 2000); // Reduced delay
-
-      } catch (error) {
-        console.error('useSignalR: Failed to initialize connections:', error);
-        setState(prev => ({
-          ...prev,
-          error: error instanceof Error ? error.message : 'Connection initialization failed',
-          isLoading: false,
-        }));
-
-        // Schedule reconnect attempt with exponential backoff
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-        }
-        
-        const backoffDelay = Math.min(1000 * Math.pow(2, state.connectionAttempts), 30000);
-        reconnectTimeoutRef.current = setTimeout(() => {
-          console.log('useSignalR: Attempting reconnect...');
-          reconnect();
-        }, backoffDelay);
-      } finally {
-        // Clear the promise reference
-        initializationRef.current.initPromise = null;
-      }
-    })();
-
-    return initializationRef.current.initPromise;
-  }, [handleConnectionStateChange, handleClassificationResult, handleClassificationTriggered, handleSystemAlert, handleDashboardUpdate, state.connectionAttempts]);
-
-  // Connection health monitoring
-  const startConnectionMonitoring = useCallback(() => {
-    if (connectionCheckInterval.current) {
-      clearInterval(connectionCheckInterval.current);
-    }
-
-    connectionCheckInterval.current = setInterval(async () => {
-      try {
-        const health = await signalRService.checkConnectionHealth();
-        
-        // Update connection state if there's a mismatch
-        setState(prev => {
-          const currentState = prev.connected;
-          if (currentState.classification !== health.classification || 
-              currentState.dashboard !== health.dashboard) {
-            console.log('useSignalR: Connection state mismatch detected, updating...');
-            return {
-              ...prev,
-              connected: {
-                classification: health.classification,
-                dashboard: health.dashboard
-              }
-            };
-          }
-          return prev;
-        });
-      } catch (error) {
-        console.error('useSignalR: Connection health check failed:', error);
-      }
-    }, 15000); // Check every 15 seconds
-  }, []);
-
-  // Cleanup function
-  const cleanup = useCallback(async () => {
-    console.log('useSignalR: Cleaning up...');
-    
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = undefined;
-    }
-
-    if (connectionCheckInterval.current) {
-      clearInterval(connectionCheckInterval.current);
-      connectionCheckInterval.current = undefined;
-    }
-    
-    try {
-      await signalRService.stopConnections();
-    } catch (error) {
-      console.error('useSignalR: Error stopping connections:', error);
-    }
-    
-    // Reset initialization state
-    initializationRef.current = {
-      initialized: false,
-      initPromise: null,
-      cleanup: null
-    };
-  }, []);
-
-  // Effect to initialize connections with proper cleanup
-  useEffect(() => {
-    console.log('useSignalR: Effect triggered - initializing...');
-    
-    const init = async () => {
-      await initializeConnections();
-      startConnectionMonitoring();
-    };
-
-    init().catch(console.error);
-
-    // Store cleanup function
-    initializationRef.current.cleanup = cleanup;
-
-    // Cleanup on unmount or deps change
     return () => {
-      if (initializationRef.current.cleanup) {
-        initializationRef.current.cleanup();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
     };
-  }, []); // Empty dependency array - only run once
+  }, [isConnected, connectionState, autoConnect]); // Removed reconnectAttempts and connect from dependencies
 
-  // Manual reconnect function
-  const reconnect = useCallback(async () => {
-    console.log('useSignalR: Manual reconnect requested...');
+  // Auto-connect on mount - FIXED to prevent race conditions
+  useEffect(() => {
+    let mounted = true;
     
-    // Reset initialization state
-    initializationRef.current.initialized = false;
-    initializationRef.current.initPromise = null;
-    
-    await cleanup();
-    await initializeConnections();
-    startConnectionMonitoring();
-  }, [cleanup, initializeConnections, startConnectionMonitoring]);
+    const handleConnect = async () => {
+      if (autoConnect && 
+          !isConnectingRef.current && 
+          connectionState === signalR.HubConnectionState.Disconnected &&
+          mounted) {
+        await connect();
+      }
+    };
 
-  const requestSystemStatus = useCallback(async () => {
-    try {
-      console.log('useSignalR: Requesting system status...');
-      await signalRService.requestSystemStatus();
-      console.log('useSignalR: System status request completed');
-    } catch (error) {
-      console.error('useSignalR: Failed to request system status:', error);
-      setState(prev => ({
-        ...prev,
-        error: `Failed to request system status: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      }));
-      throw error;
+    handleConnect();
+
+    return () => {
+      mounted = false;
+      // Only disconnect if we're actually connected/connecting
+      if (connectionRef.current && 
+          (connectionRef.current.state === signalR.HubConnectionState.Connected ||
+           connectionRef.current.state === signalR.HubConnectionState.Connecting)) {
+        disconnect();
+      }
+    };
+  }, []); // Empty dependency array to run only on mount
+
+  // Update connection state when connection changes
+  useEffect(() => {
+    const connection = connectionRef.current;
+    if (connection) {
+      const updateState = () => {
+        const currentState = connection.state;
+        if (currentState !== connectionState) {
+          setConnectionState(currentState);
+          setIsConnected(currentState === signalR.HubConnectionState.Connected);
+        }
+      };
+
+      updateState(); // Initial check
+      const stateInterval = setInterval(updateState, 1000);
+      
+      return () => clearInterval(stateInterval);
     }
-  }, []);
-
-  const requestStats = useCallback(async (fromDate?: Date, toDate?: Date) => {
-    try {
-      console.log('useSignalR: Requesting stats...');
-      await signalRService.requestStats(fromDate, toDate);
-      console.log('useSignalR: Stats request completed');
-    } catch (error) {
-      console.error('useSignalR: Failed to request stats:', error);
-      setState(prev => ({
-        ...prev,
-        error: `Failed to request stats: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      }));
-      throw error;
-    }
-  }, []);
-
-  // Send manual override
-  const sendManualOverride = useCallback(async (
-    classificationId: number,
-    newClassification: string,
-    newDisposalLocation: string,
-    reason: string,
-    userId: string = 'Dashboard'
-  ) => {
-    try {
-      await signalRService.sendManualOverride(classificationId, newClassification, reason);
-    } catch (error) {
-      console.error('useSignalR: Failed to send manual override:', error);
-      throw error;
-    }
-  }, []);
-
-  // Connection status getters
-  const isFullyConnected = state.connected.classification && state.connected.dashboard;
+  }, [connectionState]);
 
   return {
-    // Connection status
-    connected: state.connected,
-    isConnected: isFullyConnected,
-    connectionAttempts: state.connectionAttempts,
-    lastConnectionTime: state.lastConnectionTime,
-    isLoading: state.isLoading,
-    error: state.error,
-
-    // Data
-    latestClassification: state.latestClassification,
-    latestTrigger: state.latestTrigger,
-    latestAlert: state.latestAlert,
-    latestDashboardUpdate: state.latestDashboardUpdate,
-    stats: state.stats,
-    health: state.health,
-
-    // Actions
+    isConnected,
+    connectionState,
+    lastMessage,
+    error,
+    sendMessage,
+    joinGroup,
+    leaveGroup,
     reconnect,
-    requestSystemStatus,
-    requestStats,
-    sendManualOverride,
   };
 };
+
+export default useSignalR;

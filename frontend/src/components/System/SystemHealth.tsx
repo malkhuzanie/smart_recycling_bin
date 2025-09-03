@@ -153,7 +153,7 @@ const SystemHealth: React.FC = () => {
           <Grid size={{ xs: 12, md: 4 }}>
             <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
               <Typography variant="h3" color="success.main" sx={{ fontWeight: 600 }}>
-                {healthSummary.healthyComponents}
+                {healthSummary?.healthyComponents ?? '...'}
               </Typography>
               <Typography variant="body1" color="text.secondary">
                 Healthy Components
@@ -163,7 +163,7 @@ const SystemHealth: React.FC = () => {
           <Grid size={{ xs: 12, md: 4 }}>
             <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
               <Typography variant="h3" color="warning.main" sx={{ fontWeight: 600 }}>
-                {healthSummary.warningComponents}
+                {healthSummary?.warningComponents ?? '...'}
               </Typography>
               <Typography variant="body1" color="text.secondary">
                 Warnings
@@ -173,7 +173,7 @@ const SystemHealth: React.FC = () => {
           <Grid size={{ xs: 12, md: 4 }}>
             <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
               <Typography variant="h3" color="error.main" sx={{ fontWeight: 600 }}>
-                {healthSummary.errorComponents}
+                {healthSummary?.errorComponents ?? '...'}
               </Typography>
               <Typography variant="body1" color="text.secondary">
                 Critical Issues

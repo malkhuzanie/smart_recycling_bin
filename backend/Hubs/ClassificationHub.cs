@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using System.Text.Json;
+using SmartRecyclingBin.Extensions;
 using SmartRecyclingBin.Models;
 using SmartRecyclingBin.Services;
 using SmartRecyclingBin.Models.DTOs;
@@ -8,28 +9,25 @@ namespace SmartRecyclingBin.Hubs
 {
     /// <summary>
     /// SignalR Hub for real-time waste classification communication
-    /// Handles communication between Python services, dashboard, and manual override devices
     /// </summary>
     public class ClassificationHub : Hub
     {
         private readonly IClassificationService _classificationService;
         private readonly IOverrideService _overrideService;
-        private readonly INotificationService _notificationService;
         private readonly ILogger<ClassificationHub> _logger;
 
-        private readonly JsonSerializerOptions _snakeCaseDeserializerOptions;
+        private readonly JsonSerializerOptions _snakeCaseOptions;
 
         public ClassificationHub(
             IClassificationService classificationService,
             IOverrideService overrideService,
-            INotificationService notificationService,
             ILogger<ClassificationHub> logger)
         {
             _classificationService = classificationService;
             _overrideService = overrideService;
-            _notificationService = notificationService;
             _logger = logger;
-            _snakeCaseDeserializerOptions = new JsonSerializerOptions
+            
+            _snakeCaseOptions = new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
                 PropertyNameCaseInsensitive = true
@@ -37,112 +35,74 @@ namespace SmartRecyclingBin.Hubs
         }
 
         /// <summary>
-        /// Handle classification results from Python services
+        /// Handle classification results from Python services with image data
         /// </summary>
         public async Task SendClassificationResult(string jsonData)
         {
-            _logger.LogInformation("RAW JSON RECEIVED FROM PYTHON: {JsonData}", jsonData);
-
             var connectionId = Context.ConnectionId;
             var clientType = DetermineClientType();
             
+            _logger.LogInformation("🔄 Processing classification result from {ClientType} client {ConnectionId}", 
+                clientType, connectionId);
+            _logger.LogError("RAW Data received {pl}", jsonData);
+                
             try
             {
-                _logger.LogInformation("Received classification result from {ClientType} client {ConnectionId}", 
-                    clientType, connectionId);
+                // Parse JSON string to JsonElement for ClassificationService
+                using var jsonDoc = JsonDocument.Parse(jsonData);
+                var jsonElement = jsonDoc.RootElement;
                 
-                var classificationData = JsonSerializer.Deserialize<EnhancedClassificationRequestDto>(jsonData, _snakeCaseDeserializerOptions);
+                // Process the classification through ClassificationService
+                var result = await _classificationService.ProcessClassificationResultAsync(jsonElement);
                 
-                if (classificationData == null)
+                if (result == null)
                 {
-                    _logger.LogWarning("Null classification data received from connection {ConnectionId}", connectionId);
-                    await Clients.Caller.SendAsync("Error", "Classification data is null");
+                    _logger.LogError("❌ Failed to process classification result");
+                    await Clients.Caller.SendAsync("Error", "Failed to process classification result");
                     return;
                 }
 
-                // Map enhanced data structure to existing DTO for processing
-                var standardRequest = MapEnhancedToStandard(classificationData);
+                var responseDto = CreateClassificationResponseDto(result);
                 
-                var result = await _classificationService.ProcessClassificationResultAsync(standardRequest);
-                
-                // Create enhanced response with validation results from sensor data
-                var validationResults = CreateValidationResults(classificationData);
-                
-                var responseDto = new EnhancedClassificationResponseDto
-                {
-                    Id = result.Id,
-                    DetectionId = classificationData.DetectionId ?? $"detection_{result.Id}",
-                    Timestamp = result.Timestamp,
-                    FinalClassification = result.FinalClassification,
-                    FinalConfidence = result.FinalConfidence,
-                    DisposalLocation = result.DisposalLocation,
-                    Reasoning = result.Reasoning,
-                    IsOverridden = result.IsOverridden,
-                    ProcessingTimeMs = result.ProcessingTimeMs,
-                    
-                    // Enhanced fields
-                    ProcessingPipeline = classificationData.ProcessingMetadata?.StagesCompleted?.ToArray() ?? new string[0],
-                    ValidationResults = validationResults,
-                    CnnStages = new CnnStageInfo
-                    {
-                        Stage1Result = classificationData.CnnPrediction?.Stage1,
-                        Stage2Result = classificationData.CnnPrediction?.Stage2,
-                        TotalConfidence = classificationData.CnnPrediction?.TotalConfidence ?? 0.0
-                    },
-                    
-                    SensorData = classificationData.SensorData,
-                    
-                    Metadata = new Dictionary<string, object>
-                    {
-                        { "ProcessedAt", DateTime.UtcNow },
-                        { "ConnectionId", connectionId },
-                        { "ClientType", clientType },
-                        { "PipelineVersion", classificationData.ProcessingMetadata?.PipelineVersion ?? "unknown" },
-                        { "ProcessingNode", classificationData.ProcessingMetadata?.ProcessingNode ?? "unknown" },
-                        { "FallbackUsed", classificationData.ProcessingMetadata?.FallbackUsed ?? false }
-                    }
-                };
-                
-                // Send to all clients in Classification group
                 await Clients.Group("Classification").SendAsync("ClassificationResult", responseDto);
                 
-                // Send enhanced data to dashboard group
-                var dashboardData = new
+                // 📊 Send enhanced data to dashboard group
+                var dashboardUpdate = CreateDashboardUpdate(responseDto, result);
+                await Clients.Group("Dashboard").SendAsync("ClassificationUpdate", dashboardUpdate);
+                
+                // 🚨 Process alerts for concerning results
+                await ProcessClassificationAlerts(responseDto, result);
+                
+                // ✅ Log successful processing
+                _logger.LogInformation("✅ Classification processed and broadcasted: {Classification} " +
+                                     "(ID: {Id}, Detection: {DetectionId}, Confidence: {Confidence:F2}, HasImage: {HasImage})", 
+                                     result.FinalClassification, result.Id, result.DetectionId, 
+                                     result.FinalConfidence, result.HasImage);
+                                     
+                // Send success confirmation back to Python service
+                await Clients.Caller.SendAsync("ClassificationProcessed", new
                 {
-                    Type = "classification_complete",
-                    Classification = responseDto,
-                    SystemStatus = "Processing",
-                    Timestamp = DateTime.UtcNow,
-                    ProcessingStats = new
-                    {
-                        PipelineStages = responseDto.ProcessingPipeline,
-                        ValidationPassed = CountValidationPasses(responseDto.ValidationResults),
-                        SensorDataQuality = AssessSensorDataQuality(responseDto.SensorData)
-                    }
-                };
-                
-                await Clients.Group("Dashboard").SendAsync("ClassificationUpdate", dashboardData);
-                
-                // Send alerts for concerning results
-                await ProcessClassificationAlerts(responseDto);
-                
-                _logger.LogInformation("Classification broadcasted: {Classification} (confidence: {Confidence:F2}, ID: {Id}, Detection: {DetectionId})", 
-                    result.FinalClassification, result.FinalConfidence, result.Id, responseDto.DetectionId);
+                    Status = "success",
+                    ClassificationId = result.Id,
+                    DetectionId = result.DetectionId,
+                    ProcessedAt = DateTime.UtcNow
+                });
             }
             catch (JsonException ex)
             {
-                _logger.LogError(ex, "Invalid JSON format in classification result from connection {ConnectionId}", connectionId);
+                _logger.LogError(ex, "❌ Invalid JSON format in classification result from {ConnectionId}", connectionId);
                 await Clients.Caller.SendAsync("Error", "Invalid JSON format in classification data");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing classification result from connection {ConnectionId}", connectionId);
+                _logger.LogError(ex, "❌ Error processing classification result from {ConnectionId}", connectionId);
                 await Clients.Caller.SendAsync("Error", "Error processing classification result");
             }
         }
 
         /// <summary>
         /// Handle manual override from connected devices/clients
+        /// USES EXISTING ManualOverrideRequest - NO DUPLICATES!
         /// </summary>
         public async Task ApplyManualOverride(string overrideData)
         {
@@ -151,137 +111,106 @@ namespace SmartRecyclingBin.Hubs
             
             try
             {
-                _logger.LogInformation("Received manual override request from {ClientType} client {ConnectionId}", 
+                _logger.LogInformation("🔄 Processing manual override from {ClientType} client {ConnectionId}", 
                     clientType, connectionId);
                 
-                var overrideRequest = JsonSerializer.Deserialize<ManualOverrideRequestDto>(overrideData);
+                // ✅ USE EXISTING ManualOverrideRequest from ClassificationModels
+                var overrideRequest = JsonSerializer.Deserialize<ManualOverrideRequest>(overrideData, _snakeCaseOptions);
                 
                 if (overrideRequest == null)
                 {
-                    _logger.LogWarning("Null override request received from connection {ConnectionId}", connectionId);
-                    await Clients.Caller.SendAsync("OverrideError", "Override request is null");
+                    await Clients.Caller.SendAsync("Error", "Invalid override request data");
                     return;
                 }
 
-                // Convert to service request format
-                var serviceRequest = new ManualOverrideRequest
-                {
-                    ClassificationId = overrideRequest.ClassificationId,
-                    NewClassification = overrideRequest.NewClassification,
-                    NewDisposalLocation = overrideRequest.NewDisposalLocation,
-                    Reason = overrideRequest.Reason,
-                    UserId = overrideRequest.UserId ?? $"device_{clientType}_{connectionId[0..8]}"
-                };
-
-                var success = await _overrideService.ApplyManualOverrideAsync(serviceRequest);
+                // Process the override through the OverrideService
+                var success = await _overrideService.ApplyManualOverrideAsync(overrideRequest);
                 
                 if (success)
                 {
-                    // Broadcast override notification to all connected clients
-                    var overrideNotification = new
+                    // Get updated classification
+                    var updatedClassification = await _classificationService.GetClassificationAsync(overrideRequest.ClassificationId);
+                    
+                    // Broadcast override result to all clients
+                    var overrideResponse = new
                     {
-                        Type = "manual_override_applied",
-                        ClassificationId = serviceRequest.ClassificationId,
-                        NewClassification = serviceRequest.NewClassification,
-                        NewDisposalLocation = serviceRequest.NewDisposalLocation,
-                        Reason = serviceRequest.Reason,
-                        OverriddenBy = serviceRequest.UserId,
+                        Type = "classification_overridden",
+                        ClassificationId = overrideRequest.ClassificationId,
+                        NewClassification = overrideRequest.NewClassification,
+                        NewDisposalLocation = overrideRequest.NewDisposalLocation,
+                        Reason = overrideRequest.Reason,
+                        UserId = overrideRequest.UserId,
                         Timestamp = DateTime.UtcNow,
-                        ConnectionId = connectionId,
-                        ClientType = clientType
+                        UpdatedClassification = updatedClassification != null ? CreateClassificationResponseDto(updatedClassification) : null
                     };
-
-                    // Notify all classification clients
-                    await Clients.Group("Classification").SendAsync("ClassificationOverridden", overrideNotification);
                     
-                    // Notify dashboard
-                    await Clients.Group("Dashboard").SendAsync("OverrideApplied", overrideNotification);
+                    await Clients.Group("Classification").SendAsync("ClassificationOverridden", overrideResponse);
+                    await Clients.Group("Dashboard").SendAsync("OverrideApplied", overrideResponse);
                     
-                    // Confirm to the requesting client
-                    await Clients.Caller.SendAsync("OverrideSuccess", new
+                    _logger.LogInformation("✅ Manual override applied: {NewClassification} " +
+                                         "(ID: {ClassificationId}, Reason: {Reason})", 
+                                         overrideRequest.NewClassification, overrideRequest.ClassificationId, 
+                                         overrideRequest.Reason);
+                                         
+                    await Clients.Caller.SendAsync("OverrideProcessed", new
                     {
-                        Message = "Manual override applied successfully",
-                        ClassificationId = serviceRequest.ClassificationId,
-                        Timestamp = DateTime.UtcNow
+                        Status = "success",
+                        Message = "Override applied successfully"
                     });
-
-                    _logger.LogInformation("Manual override applied successfully by {UserId} for classification {ClassificationId}", 
-                        serviceRequest.UserId, serviceRequest.ClassificationId);
                 }
                 else
                 {
-                    await Clients.Caller.SendAsync("OverrideError", new
-                    {
-                        Message = "Failed to apply override - classification not found",
-                        ClassificationId = overrideRequest.ClassificationId
-                    });
-                    
-                    _logger.LogWarning("Failed to apply override for classification {ClassificationId} - not found", 
+                    _logger.LogWarning("❌ Failed to apply manual override for classification {ClassificationId}", 
                         overrideRequest.ClassificationId);
+                    await Clients.Caller.SendAsync("Error", "Failed to apply override");
                 }
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogError(ex, "Invalid JSON format in override request from connection {ConnectionId}", connectionId);
-                await Clients.Caller.SendAsync("OverrideError", "Invalid JSON format in override request");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing manual override from connection {ConnectionId}", connectionId);
-                await Clients.Caller.SendAsync("OverrideError", "Error processing manual override");
+                _logger.LogError(ex, "❌ Error processing manual override from {ConnectionId}", connectionId);
+                await Clients.Caller.SendAsync("Error", "Error processing manual override");
             }
         }
 
         /// <summary>
-        /// Handle item detection notifications from Arduino/sensor services
+        /// Handle item detection notifications from Arduino service
+        /// USES EXISTING ItemDetectionDto - NO DUPLICATES!
         /// </summary>
-        public async Task NotifyItemDetection(string detectionData)
+        public async Task NotifyItemDetection(string itemData)
         {
             var connectionId = Context.ConnectionId;
             var clientType = DetermineClientType();
             
             try
             {
-                _logger.LogInformation("Received item detection from {ClientType} client {ConnectionId}", 
-                    clientType, connectionId);
+                _logger.LogInformation("📦 Item detected by {ClientType} client {ConnectionId}", clientType, connectionId);
                 
-                var detection = JsonSerializer.Deserialize<ItemDetectionDto>(detectionData);
+                // Parse as generic JSON since ItemDetectionDto structure may vary
+                var detectionData = JsonSerializer.Deserialize<JsonElement>(itemData, _snakeCaseOptions);
                 
-                if (detection != null)
+                // Broadcast item detection to dashboard and classification clients
+                var detectionNotification = new
                 {
-                    // Broadcast to all connected clients
-                    await Clients.Group("Classification").SendAsync("ItemDetected", new
-                    {
-                        Type = "item_detected",
-                        ItemId = detection.ItemId,
-                        Timestamp = detection.Timestamp,
-                        DetectionType = detection.Type,
-                        SensorData = detection.SensorData,
-                        Source = clientType
-                    });
-
-                    // Notify dashboard
-                    await Clients.Group("Dashboard").SendAsync("ItemDetection", new
-                    {
-                        Type = "item_detection",
-                        Data = detection,
-                        Source = clientType,
-                        Timestamp = DateTime.UtcNow
-                    });
-
-                    _logger.LogInformation("Item detection broadcasted: {ItemId} from {ClientType}", 
-                        detection.ItemId, clientType);
-                }
+                    Type = "item_detected",
+                    DetectionData = detectionData,
+                    Timestamp = DateTime.UtcNow,
+                    Source = clientType
+                };
+                
+                await Clients.Group("Dashboard").SendAsync("ItemDetected", detectionNotification);
+                await Clients.Group("Classification").SendAsync("ProcessingStarted", detectionNotification);
+                
+                _logger.LogInformation("📡 Item detection broadcasted from {ClientType}", clientType);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing item detection from connection {ConnectionId}", connectionId);
+                _logger.LogError(ex, "❌ Error processing item detection from {ConnectionId}", connectionId);
                 await Clients.Caller.SendAsync("Error", "Error processing item detection");
             }
         }
 
         /// <summary>
-        /// Handle service heartbeat from Python services
+        /// Handle heartbeat messages from services
         /// </summary>
         public async Task SendHeartbeat(string heartbeatData)
         {
@@ -290,30 +219,106 @@ namespace SmartRecyclingBin.Hubs
             
             try
             {
-                var heartbeat = JsonSerializer.Deserialize<ServiceHeartbeatDto>(heartbeatData);
+                // Parse as generic JSON since heartbeat structure may vary
+                var heartbeat = JsonSerializer.Deserialize<JsonElement>(heartbeatData, _snakeCaseOptions);
                 
-                if (heartbeat != null)
+                // Update system status based on heartbeat
+                var statusUpdate = new
                 {
-                    // Update service status and notify dashboard
-                    await Clients.Group("Dashboard").SendAsync("ServiceHeartbeat", new
-                    {
-                        Type = "service_heartbeat",
-                        Service = heartbeat,
-                        ConnectionId = connectionId,
-                        ClientType = clientType,
-                        ReceivedAt = DateTime.UtcNow
-                    });
-
-                    _logger.LogDebug("Heartbeat received from {ServiceName} ({ClientType}): Status={Status}", 
-                        heartbeat.ServiceName, clientType, heartbeat.Status);
-                }
+                    Type = "service_heartbeat",
+                    ServiceType = clientType,
+                    ConnectionId = connectionId,
+                    HeartbeatData = heartbeat,
+                    Timestamp = DateTime.UtcNow
+                };
+                
+                // Send to dashboard for system monitoring
+                await Clients.Group("Dashboard").SendAsync("ServiceHeartbeat", statusUpdate);
+                
+                _logger.LogDebug("💗 Heartbeat received from {ClientType} client {ConnectionId}", clientType, connectionId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing heartbeat from connection {ConnectionId}", connectionId);
+                _logger.LogError(ex, "❌ Error processing heartbeat from {ConnectionId}", connectionId);
             }
         }
 
+        /// <summary>
+        /// Allow clients to join specific groups for targeted updates
+        /// </summary>
+        public async Task JoinGroup(string groupName)
+        {
+            var connectionId = Context.ConnectionId;
+            var clientType = DetermineClientType();
+            
+            if (IsValidGroupName(groupName))
+            {
+                await Groups.AddToGroupAsync(connectionId, groupName);
+                _logger.LogInformation("✅ {ClientType} client {ConnectionId} joined group '{GroupName}'", 
+                    clientType, connectionId, groupName);
+                    
+                await Clients.Caller.SendAsync("GroupJoined", new
+                {
+                    GroupName = groupName,
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                _logger.LogWarning("❌ Invalid group name '{GroupName}' from {ConnectionId}", groupName, connectionId);
+                await Clients.Caller.SendAsync("Error", $"Invalid group name: {groupName}");
+            }
+        }
+
+        /// <summary>
+        /// Allow clients to leave groups
+        /// </summary>
+        public async Task LeaveGroup(string groupName)
+        {
+            var connectionId = Context.ConnectionId;
+            
+            await Groups.RemoveFromGroupAsync(connectionId, groupName);
+            _logger.LogInformation("👋 Client {ConnectionId} left group '{GroupName}'", connectionId, groupName);
+        }
+
+        // Connection event handlers
+        public override async Task OnConnectedAsync()
+        {
+            var connectionId = Context.ConnectionId;
+            var clientType = DetermineClientType();
+            
+            _logger.LogInformation("🔗 Client connected to ClassificationHub: {ConnectionId} (Type: {ClientType})", 
+                connectionId, clientType);
+                
+            // Automatically join appropriate groups based on client type
+            if (clientType == "web_dashboard")
+            {
+                await Groups.AddToGroupAsync(connectionId, "Dashboard");
+                await Groups.AddToGroupAsync(connectionId, "Classification");
+            }
+            else if (clientType.EndsWith("_service"))
+            {
+                await Groups.AddToGroupAsync(connectionId, "Classification");
+            }
+                
+            await Clients.Caller.SendAsync("Connected", new
+            {
+                ConnectionId = connectionId,
+                ClientType = clientType,
+                Message = "Connected to ClassificationHub",
+                Timestamp = DateTime.UtcNow,
+                HubVersion = "v2.1",
+                SupportedOperations = new[] 
+                { 
+                    "SendClassificationResult", "ApplyManualOverride", 
+                    "NotifyItemDetection", "SendHeartbeat", 
+                    "JoinGroup", "LeaveGroup" 
+                }
+            });
+            
+            await base.OnConnectedAsync();
+        }
+        
         /// <summary>
         /// Join classification group for receiving real-time updates
         /// </summary>
@@ -356,147 +361,30 @@ namespace SmartRecyclingBin.Hubs
             });
         }
 
-        // Helper Methods
-
-        private Dictionary<string, object> CreateValidationResults(EnhancedClassificationRequestDto classificationData)
+        public override async Task OnDisconnectedAsync(Exception? exception)
         {
-            var validationResults = new Dictionary<string, object>();
+            var connectionId = Context.ConnectionId;
+            var clientType = DetermineClientType();
             
-            // Create validation results based on sensor data and expert system results
-            if (classificationData.SensorData != null)
+            if (exception != null)
             {
-                validationResults["weight_validation"] = ValidateWeight(classificationData) ? "pass" : "fail";
-                validationResults["metal_validation"] = ValidateMetal(classificationData) ? "pass" : "fail";
-                validationResults["humidity_validation"] = ValidateHumidity(classificationData) ? "pass" : "fail";
-                validationResults["ir_spectroscopy_validation"] = "pass"; // Assume pass if no IR data
+                _logger.LogError(exception, "❌ Client disconnected from ClassificationHub with error: {ConnectionId} (Type: {ClientType})", 
+                    connectionId, clientType);
             }
-
-            if (classificationData.ExpertSystemResult != null)
+            else
             {
-                validationResults["expert_system_confidence"] = classificationData.ExpertSystemResult.Confidence;
-                validationResults["candidates_count"] = classificationData.ExpertSystemResult.CandidatesCount;
+                _logger.LogInformation("👋 Client disconnected from ClassificationHub: {ConnectionId} (Type: {ClientType})", 
+                    connectionId, clientType);
             }
-
-            return validationResults;
+            
+            await base.OnDisconnectedAsync(exception);
         }
 
-        private bool ValidateWeight(EnhancedClassificationRequestDto data)
-        {
-            if (data.SensorData == null) return true;
-            
-            // Basic weight validation logic
-            var weight = data.SensorData.WeightGrams;
-            var classification = data.ExpertSystemResult?.FinalClassification?.ToLower();
-            
-            return classification switch
-            {
-                "metal" => weight > 5.0, // Metal items typically heavier
-                "glass" => weight > 10.0, // Glass items typically heavy
-                "plastic" => weight < 100.0, // Plastic items typically lighter
-                "paper" => weight < 50.0, // Paper items typically light
-                "organic" => weight > 0.5, // Organic items vary widely
-                _ => true // Unknown classifications pass validation
-            };
-        }
-
-        private bool ValidateMetal(EnhancedClassificationRequestDto data)
-        {
-            if (data.SensorData == null) return true;
-            
-            var isMetalDetected = data.SensorData.IsMetalDetected;
-            var classification = data.ExpertSystemResult?.FinalClassification?.ToLower();
-            
-            return classification switch
-            {
-                "metal" => isMetalDetected, // Metal classification should detect metal
-                _ => true // Non-metal classifications don't require metal detection
-            };
-        }
-
-        private bool ValidateHumidity(EnhancedClassificationRequestDto data)
-        {
-            if (data.SensorData == null) return true;
-            
-            var humidity = data.SensorData.HumidityPercent;
-            var classification = data.ExpertSystemResult?.FinalClassification?.ToLower();
-            
-            return classification switch
-            {
-                "organic" => humidity > 30.0, // Organic items typically have higher humidity
-                "paper" when humidity > 60.0 => false, // Wet paper shouldn't be recycled
-                _ => true // Other classifications are less sensitive to humidity
-            };
-        }
-
-        private ClassificationRequestDto MapEnhancedToStandard(EnhancedClassificationRequestDto enhanced)
-        {
-            return new ClassificationRequestDto
-            {
-                CnnPrediction = enhanced.CnnPrediction?.Stage1 ?? enhanced.CnnPrediction?.Stage2,
-                SensorData = enhanced.SensorData,
-                ExpertSystemResult = enhanced.ExpertSystemResult,
-                Timestamp = DateTime.TryParse(enhanced.Timestamp, out var ts) ? ts : DateTime.UtcNow
-            };
-        }
-
-        private int CountValidationPasses(Dictionary<string, object> validationResults)
-        {
-            return validationResults.Values
-                .Where(v => v?.ToString()?.Equals("pass", StringComparison.OrdinalIgnoreCase) == true)
-                .Count();
-        }
-
-        private string AssessSensorDataQuality(SensorDataDto? sensorData)
-        {
-            if (sensorData == null) return "no_data";
-            
-            var qualityScore = 0;
-            if (sensorData.WeightGrams > 0) qualityScore++;
-            if (sensorData.HumidityPercent >= 0) qualityScore++;
-            if (sensorData.TemperatureCelsius > -40) qualityScore++;
-            
-            return qualityScore switch
-            {
-                3 => "excellent",
-                2 => "good", 
-                1 => "fair",
-                _ => "poor"
-            };
-        }
-
-        private async Task ProcessClassificationAlerts(EnhancedClassificationResponseDto responseDto)
-        {
-            // Check for low confidence classifications
-            if (responseDto.FinalConfidence < 0.7)
-            {
-                await _notificationService.AddAlert(new SystemAlert
-                {
-                    Severity = "WARNING",
-                    Component = "Classification",
-                    Message = $"Low confidence classification: {responseDto.FinalClassification} ({responseDto.FinalConfidence:F2})"
-                });
-            }
-
-            // Check for validation failures
-            var failedValidations = responseDto.ValidationResults
-                .Where(kv => kv.Value?.ToString()?.Equals("fail", StringComparison.OrdinalIgnoreCase) == true)
-                .Count();
-
-            if (failedValidations > 1)
-            {
-                await _notificationService.AddAlert(new SystemAlert
-                {
-                    Severity = "INFO",
-                    Component = "Validation",
-                    Message = $"Multiple validation failures ({failedValidations}) for detection {responseDto.DetectionId}"
-                });
-            }
-        }
+        // Private helper methods
 
         private string DetermineClientType()
         {
-            var userAgent = Context.GetHttpContext()?.Request.Headers["User-Agent"].ToString() ?? "";
-            var connectionId = Context.ConnectionId;
+            var userAgent = Context.GetHttpContext()?.Request.Headers.UserAgent.ToString() ?? "";
             
             return userAgent.ToLower() switch
             {
@@ -510,131 +398,191 @@ namespace SmartRecyclingBin.Hubs
             };
         }
 
-        // Connection event handlers
-        public override async Task OnConnectedAsync()
+        private ClassificationResponseDto CreateClassificationResponseDto(ClassificationResult result)
         {
-            var connectionId = Context.ConnectionId;
-            var clientType = DetermineClientType();
-            
-            _logger.LogInformation("Client connected to ClassificationHub: {ConnectionId} (Type: {ClientType})", 
-                connectionId, clientType);
+            return new ClassificationResponseDto
+            {
+                Id = result.Id,
+                DetectionId = result.DetectionId,
+                Timestamp = result.Timestamp,
+                FinalClassification = result.FinalClassification,
+                FinalConfidence = result.FinalConfidence,
+                DisposalLocation = result.DisposalLocation,
+                Reasoning = result.Reasoning,
+                IsOverridden = result.IsOverridden,
+                ProcessingTimeMs = result.ProcessingTimeMs,
+                HasImage = result.HasImage,
                 
-            await Clients.Caller.SendAsync("Connected", new
-            {
-                ConnectionId = connectionId,
-                ClientType = clientType,
-                Message = "Connected to ClassificationHub",
-                Timestamp = DateTime.UtcNow,
-                HubVersion = "v2.0",
-                SupportedOperations = new[] { "SendClassificationResult", "ApplyManualOverride", "NotifyItemDetection", "SendHeartbeat" }
-            });
-            
-            await base.OnConnectedAsync();
+                // Enhanced fields from stored result
+                ProcessingPipeline = result.ProcessingPipeline ?? string.Empty,
+                ValidationResults = result.ValidationResults ?? "{}",
+                
+                // ✅ CNN information - USING EXISTING CnnPredictionDto
+                CnnPrediction = string.IsNullOrEmpty(result.CnnPredictedClass) ? null : new CnnPredictionDto
+                {
+                    PredictedClass = result.CnnPredictedClass ?? "",
+                    Confidence = result.CnnConfidence,
+                    Stage = result.CnnStage,
+                    ProcessingTimeMs = result.ProcessingTimeMs
+                },
+                
+                // ✅ Sensor data - USING EXISTING SensorDataDto
+                SensorData = new SensorDataDto
+                {
+                    WeightGrams = result.WeightGrams,
+                    IsMetalDetected = result.IsMetalDetected,
+                    HumidityPercent = result.HumidityPercent,
+                    TemperatureCelsius = result.TemperatureCelsius,
+                    IsMoist = result.IsMoist,
+                    IsTransparent = result.IsTransparent,
+                    IsFlexible = result.IsFlexible,
+                    IrTransparency = result.IrTransparency
+                },
+                
+                // Image metadata (without actual image data for performance)
+                ImageMetadata = result.HasImage ? new ImageMetadataDto
+                {
+                    HasImage = true,
+                    ImageSizeBytes = result.ImageSizeBytes,
+                    ImageFormat = result.ImageFormat,
+                    ImageDimensions = result.ImageDimensions,
+                    ImageCaptureTimestamp = result.ImageCaptureTimestamp
+                } : new ImageMetadataDto { HasImage = false },
+
+                // Override information
+                OverrideReason = result.OverrideReason,
+                OverrideClassification = result.OverrideClassification,
+                OverrideTimestamp = result.OverrideTimestamp,
+                OverrideUserId = result.OverrideUserId
+            };
         }
 
-        public override async Task OnDisconnectedAsync(Exception? exception)
+        private object CreateDashboardUpdate(ClassificationResponseDto responseDto, ClassificationResult result)
         {
-            var connectionId = Context.ConnectionId;
-            var clientType = DetermineClientType();
-            
-            if (exception != null)
+            return new
             {
-                _logger.LogError(exception, "Client disconnected from ClassificationHub with error: {ConnectionId} (Type: {ClientType})", 
-                    connectionId, clientType);
-            }
-            else
-            {
-                _logger.LogInformation("Client disconnected from ClassificationHub: {ConnectionId} (Type: {ClientType})", 
-                    connectionId, clientType);
-            }
-            
-            await base.OnDisconnectedAsync(exception);
+                Type = "classification_complete",
+                Classification = responseDto,
+                SystemStatus = "Processing",
+                Timestamp = DateTime.UtcNow,
+                ProcessingStats = new
+                {
+                    PipelineStages = responseDto.ProcessingPipeline.Split(" → ", StringSplitOptions.RemoveEmptyEntries),
+                    ValidationsPassed = CountValidationPasses(responseDto.ValidationResults),
+                    HasImage = responseDto.HasImage,
+                    ProcessingTimeMs = responseDto.ProcessingTimeMs,
+                    ConfidenceLevel = GetConfidenceLevel(responseDto.FinalConfidence)
+                },
+                Performance = new
+                {
+                    ProcessingSpeed = responseDto.ProcessingTimeMs,
+                    ConfidenceScore = responseDto.FinalConfidence,
+                    PipelineEfficiency = CalculatePipelineEfficiency(responseDto)
+                }
+            };
         }
-    }
 
-    // DTOs for enhanced functionality
+        private async Task ProcessClassificationAlerts(ClassificationResponseDto responseDto, ClassificationResult result)
+        {
+            var alerts = new List<object>();
 
-    public class ManualOverrideRequestDto
-    {
-        public int ClassificationId { get; set; }
-        public string NewClassification { get; set; } = string.Empty;
-        public string NewDisposalLocation { get; set; } = string.Empty;
-        public string Reason { get; set; } = string.Empty;
-        public string? UserId { get; set; }
-    }
+            // Low confidence alert
+            if (responseDto.FinalConfidence < 0.7)
+            {
+                alerts.Add(new
+                {
+                    Type = "low_confidence",
+                    Message = $"Low confidence classification: {responseDto.FinalClassification} ({responseDto.FinalConfidence:P1})",
+                    Severity = "warning",
+                    ClassificationId = responseDto.Id
+                });
+            }
 
-    public class EnhancedClassificationRequestDto
-    {
-        public string? DetectionId { get; set; }
-        public string? Timestamp { get; set; }
-        public double ProcessingTimeMs { get; set; }
-        public CnnPredictionEnhancedDto? CnnPrediction { get; set; }
-        public SensorDataDto? SensorData { get; set; }
-        public ExpertSystemResultDto? ExpertSystemResult { get; set; }
-        public ProcessingMetadataDto? ProcessingMetadata { get; set; }
-    }
+            // Large processing time alert
+            if (responseDto.ProcessingTimeMs > 5000)
+            {
+                alerts.Add(new
+                {
+                    Type = "slow_processing",
+                    Message = $"Slow processing time: {responseDto.ProcessingTimeMs:F0}ms",
+                    Severity = "info",
+                    ClassificationId = responseDto.Id
+                });
+            }
 
-    public class CnnPredictionEnhancedDto
-    {
-        public CnnPredictionDto? Stage1 { get; set; }
-        public CnnPredictionDto? Stage2 { get; set; }
-        public double TotalConfidence { get; set; }
-    }
+            // Image quality alert
+            if (!responseDto.HasImage)
+            {
+                alerts.Add(new
+                {
+                    Type = "no_image",
+                    Message = "No image captured for classification",
+                    Severity = "warning",
+                    ClassificationId = responseDto.Id
+                });
+            }
 
-    public class ProcessingMetadataDto
-    {
-        public string? PipelineVersion { get; set; }
-        public string? ModelVersion { get; set; }
-        public string? ProcessingNode { get; set; }
-        public List<string>? StagesCompleted { get; set; }
-        public bool FallbackUsed { get; set; }
-    }
+            // Send alerts if any
+            if (alerts.Any())
+            {
+                await Clients.Group("Dashboard").SendAsync("ClassificationAlerts", new
+                {
+                    ClassificationId = responseDto.Id,
+                    DetectionId = responseDto.DetectionId,
+                    Alerts = alerts,
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+        }
 
-    public class EnhancedClassificationResponseDto
-    {
-        public int Id { get; set; }
-        public string DetectionId { get; set; } = string.Empty;
-        public DateTime Timestamp { get; set; }
-        public string FinalClassification { get; set; } = string.Empty;
-        public double FinalConfidence { get; set; }
-        public string DisposalLocation { get; set; } = string.Empty;
-        public string Reasoning { get; set; } = string.Empty;
-        public bool IsOverridden { get; set; }
-        public double ProcessingTimeMs { get; set; }
-        
-        // Enhanced fields
-        public string[] ProcessingPipeline { get; set; } = Array.Empty<string>();
-        public Dictionary<string, object> ValidationResults { get; set; } = new();
-        public CnnStageInfo CnnStages { get; set; } = new();
-        public SensorDataDto? SensorData { get; set; }
-        public Dictionary<string, object> Metadata { get; set; } = new();
-    }
+        private bool IsValidGroupName(string groupName)
+        {
+            var validGroups = new[] { "Classification", "Dashboard", "Monitoring", "Alerts" };
+            return validGroups.Contains(groupName);
+        }
 
-    public class ItemDetectionDto
-    {
-        public string ItemId { get; set; } = string.Empty;
-        public string Timestamp { get; set; } = string.Empty;
-        public string Type { get; set; } = string.Empty;
-        public SensorDataDto? SensorData { get; set; }
-    }
+        private int CountValidationPasses(string validationResults)
+        {
+            if (string.IsNullOrEmpty(validationResults)) return 0;
+            
+            try
+            {
+                using var doc = JsonDocument.Parse(validationResults);
+                var count = 0;
+                foreach (var property in doc.RootElement.EnumerateObject())
+                {
+                    if (property.Value.ValueKind == JsonValueKind.String && 
+                        property.Value.GetString()?.ToLower() == "pass")
+                    {
+                        count++;
+                    }
+                }
+                return count;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
 
-    public class ItemRemovalDto
-    {
-        public string ItemId { get; set; } = string.Empty;
-        public string Timestamp { get; set; } = string.Empty;
-        public string Type { get; set; } = string.Empty;
-    }
+        private string GetConfidenceLevel(double confidence)
+        {
+            return confidence switch
+            {
+                >= 0.9 => "High",
+                >= 0.7 => "Medium",
+                >= 0.5 => "Low",
+                _ => "Very Low"
+            };
+        }
 
-    public class ServiceHeartbeatDto
-    {
-        public string ServiceName { get; set; } = string.Empty;
-        public string Timestamp { get; set; } = string.Empty;
-        public string Status { get; set; } = string.Empty;
-        public bool CameraConnected { get; set; }
-        public bool ModelLoaded { get; set; }
-        public bool ArduinoConnected { get; set; }
-        public bool ExpertSystemAvailable { get; set; }
-        public int ItemsInQueue { get; set; }
-        public bool IsProcessing { get; set; }
+        private double CalculatePipelineEfficiency(ClassificationResponseDto responseDto)
+        {
+            // Calculate efficiency based on processing time and confidence
+            var timeEfficiency = Math.Max(0, 1 - (responseDto.ProcessingTimeMs / 10000.0)); // Target: under 10s
+            var confidenceWeight = responseDto.FinalConfidence;
+            
+            return (timeEfficiency + confidenceWeight) / 2.0;
+        }
     }
 }

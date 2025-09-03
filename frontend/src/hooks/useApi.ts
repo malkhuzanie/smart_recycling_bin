@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../services/api';
+import apiService from '../services/api'; 
 
 interface ApiState<T> {
   data: T | null;
@@ -7,22 +7,36 @@ interface ApiState<T> {
   error: string | null;
 }
 
-export const useApi = <T>(
+interface UseApiReturn<T> {
+  data: T | null;
+  loading: boolean;
+  error: string | null;
+  execute: () => Promise<void>;
+  refresh: () => Promise<void>;
+  clearError: () => void;
+}
+
+function useApi<T>(
   apiCall: () => Promise<T>,
-  dependencies: React.DependencyList = []
-) => {
+  dependencies: any[] = [],
+  immediate: boolean = true
+): UseApiReturn<T> {
   const [state, setState] = useState<ApiState<T>>({
     data: null,
-    loading: true,
+    loading: false,
     error: null,
   });
 
-  const fetchData = useCallback(async () => {
+  const execute = useCallback(async () => {
     setState(prev => ({ ...prev, loading: true, error: null }));
     
     try {
-      const data = await apiCall();
-      setState({ data, loading: false, error: null });
+      const result = await apiCall();
+      setState({
+        data: result,
+        loading: false,
+        error: null,
+      });
     } catch (error) {
       setState({
         data: null,
@@ -30,33 +44,30 @@ export const useApi = <T>(
         error: error instanceof Error ? error.message : 'An error occurred',
       });
     }
+  }, [apiCall]);
+
+  const refresh = useCallback(async () => {
+    await execute();
+  }, [execute]);
+
+  const clearError = useCallback(() => {
+    setState(prev => ({ ...prev, error: null }));
+  }, []);
+
+  useEffect(() => {
+    if (immediate) {
+      execute();
+    }
   }, dependencies);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
   return {
-    ...state,
-    refetch: fetchData,
+    data: state.data,
+    loading: state.loading,
+    error: state.error,
+    execute,
+    refresh,
+    clearError,
   };
-};
+}
 
-export const useDashboardStats = (refreshInterval = 30000) => {
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-
-  const result = useApi(
-    () => api.getDashboardStats(),
-    [refreshTrigger]
-  );
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setRefreshTrigger(prev => prev + 1);
-    }, refreshInterval);
-
-    return () => clearInterval(interval);
-  }, [refreshInterval]);
-
-  return result;
-};
+export default useApi;

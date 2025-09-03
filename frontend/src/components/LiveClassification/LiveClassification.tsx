@@ -1,3 +1,4 @@
+// frontend/src/components/LiveClassification/LiveClassification.tsx
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -29,6 +30,9 @@ import {
   Tooltip,
   IconButton,
   Stack,
+  Badge,
+  Skeleton,
+  CardActions,
 } from '@mui/material';
 import {
   Camera,
@@ -43,37 +47,14 @@ import {
   LocationOn,
   Psychology,
   Settings as SettingsIcon,
+  Image as ImageIcon,
+  Download,
+  ZoomIn,
+  PhotoCamera,
+  Warning,
 } from '@mui/icons-material';
-import { useSignalR } from '../../hooks/useSignalR';
-
-interface ClassificationResult {
-  id: number;
-  detectionId: string;
-  timestamp: string;
-  finalClassification: string;
-  finalConfidence: number;
-  disposalLocation: string;
-  reasoning: string;
-  processingTimeMs: number;
-  imageBase64?: string;
-  cnnStages?: {
-    stage1Result?: any;
-    stage2Result?: any;
-    totalConfidence: number;
-  };
-  sensorData?: {
-    weightGrams: number;
-    isMetalDetected: boolean;
-    humidityPercent: number;
-    temperatureCelsius: number;
-    isMoist: boolean;
-    isTransparent: boolean;
-    isFlexible: boolean;
-  };
-  validationResults?: {
-    [key: string]: string;
-  };
-}
+import { useLiveClassification } from '../../hooks/useLiveClassification';
+import apiService, { ClassificationResult } from '../../services/api';
 
 interface OverrideDialogProps {
   open: boolean;
@@ -170,52 +151,111 @@ const OverrideDialog: React.FC<OverrideDialogProps> = ({
   );
 };
 
-const LiveClassification: React.FC = () => {
-  const [currentClassification, setCurrentClassification] = useState<ClassificationResult | null>(null);
-  const [previousClassifications, setPreviousClassifications] = useState<ClassificationResult[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [systemStatus, setSystemStatus] = useState('Connected');
-  const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
+// 🖼️ IMAGE ZOOM DIALOG
+interface ImageZoomDialogProps {
+  open: boolean;
+  classification: ClassificationResult | null;
+  onClose: () => void;
+}
 
-  // SignalR connection for real-time updates
-  const { isConnected, lastMessage } = useSignalR('ws://localhost:5000/classification-hub');
-
-  useEffect(() => {
-    if (lastMessage && lastMessage.type === 'classification_result') {
-      const newResult = lastMessage.data as ClassificationResult;
-      setCurrentClassification(newResult);
-      setIsProcessing(false);
-      
-      // Add to previous classifications (keep last 10)
-      setPreviousClassifications(prev => [newResult, ...prev.slice(0, 9)]);
-    } else if (lastMessage && lastMessage.type === 'processing_started') {
-      setIsProcessing(true);
+const ImageZoomDialog: React.FC<ImageZoomDialogProps> = ({ open, classification, onClose }) => {
+  const handleDownload = async () => {
+    if (!classification) return;
+    
+    try {
+      await apiService.downloadClassificationImage(classification.id);
+    } catch (error) {
+      console.error('Failed to download image:', error);
     }
-  }, [lastMessage]);
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+      <DialogTitle>
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            Classification Image - {classification?.detectionId}
+          </Typography>
+          <IconButton onClick={handleDownload} disabled={!classification?.hasImage}>
+            <Download />
+          </IconButton>
+        </Box>
+      </DialogTitle>
+      <DialogContent sx={{ p: 0 }}>
+        {classification?.hasImage && apiService.getImageUrl(classification) ? (
+          <img
+            src={apiService.getImageUrl(classification)!}
+            alt="Classification"
+            style={{
+              width: '100%',
+              height: 'auto',
+              maxHeight: '70vh',
+              objectFit: 'contain',
+              backgroundColor: '#f5f5f5'
+            }}
+          />
+        ) : (
+          <Box 
+            display="flex" 
+            justifyContent="center" 
+            alignItems="center" 
+            height={400}
+            bgcolor="grey.100"
+          >
+            <Typography color="text.secondary">
+              No image available
+            </Typography>
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+const LiveClassification: React.FC = () => {
+  const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
+  const [imageZoomDialogOpen, setImageZoomDialogOpen] = useState(false);
+  const [selectedClassification, setSelectedClassification] = useState<ClassificationResult | null>(null);
+
+  // Use the specialized live classification hook
+  const {
+    currentClassification,
+    previousClassifications,
+    isProcessing,
+    systemStatus,
+    error,
+    overrideClassification,
+    approveClassification,
+    rejectClassification,
+    requestReclassification,
+    triggerManualCapture,
+    clearError,
+  } = useLiveClassification();
 
   const handleOverride = async (overrideData: any) => {
     try {
-      // Call API to override classification
-      const response = await fetch('/api/classification/override', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(overrideData),
-      });
-
-      if (response.ok) {
-        // Update current classification to reflect override
-        if (currentClassification) {
-          setCurrentClassification({
-            ...currentClassification,
-            finalClassification: overrideData.newClassification,
-            reasoning: `Override: ${overrideData.reason}`,
-          });
-        }
+      const success = await overrideClassification(overrideData);
+      if (!success) {
+        console.error('Override failed');
       }
     } catch (error) {
       console.error('Failed to override classification:', error);
+    }
+  };
+
+  const handleImageZoom = (classification: ClassificationResult) => {
+    setSelectedClassification(classification);
+    setImageZoomDialogOpen(true);
+  };
+
+  const handleManualCapture = async () => {
+    try {
+      await triggerManualCapture();
+    } catch (error) {
+      console.error('Failed to trigger manual capture:', error);
     }
   };
 
@@ -234,8 +274,29 @@ const LiveClassification: React.FC = () => {
     });
   };
 
+  const formatImageInfo = (classification: ClassificationResult) => {
+    if (!classification.hasImage) return 'No image';
+    
+    const size = apiService.formatImageSize(classification.imageSizeBytes);
+    const format = classification.imageFormat?.toUpperCase() || 'Unknown';
+    const dimensions = classification.imageDimensions || 'Unknown';
+    
+    return `${format} • ${dimensions} • ${size}`;
+  };
+
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* Error Alert */}
+      {error && (
+        <Alert 
+          severity="error" 
+          onClose={clearError}
+          sx={{ mb: 2 }}
+        >
+          {error}
+        </Alert>
+      )}
+
       {/* Header */}
       <Paper sx={{ px: 3, py: 2, mb: 2 }} elevation={1}>
         <Box display="flex" justifyContent="space-between" alignItems="center">
@@ -245,10 +306,35 @@ const LiveClassification: React.FC = () => {
           <Box display="flex" alignItems="center" gap={2}>
             <Chip 
               icon={<Camera />}
-              label={isConnected ? 'Connected' : 'Disconnected'}
-              color={isConnected ? 'success' : 'error'}
+              label={systemStatus.isConnected ? 'Connected' : 'Disconnected'}
+              color={systemStatus.isConnected ? 'success' : 'error'}
               variant="outlined"
             />
+            <Chip 
+              label={`Camera: ${systemStatus.cameraConnected ? 'On' : 'Off'}`}
+              color={systemStatus.cameraConnected ? 'success' : 'default'}
+              size="small"
+              variant="outlined"
+            />
+            <Badge 
+              badgeContent={systemStatus.imageStorageEnabled ? '📷' : '❌'} 
+              color={systemStatus.imageStorageEnabled ? 'success' : 'error'}
+            >
+              <Chip 
+                label="Image Storage"
+                size="small"
+                variant="outlined"
+              />
+            </Badge>
+            <Button
+              variant="outlined"
+              startIcon={<PhotoCamera />}
+              onClick={handleManualCapture}
+              disabled={!systemStatus.cameraConnected || isProcessing}
+              size="small"
+            >
+              Manual Capture
+            </Button>
             <Tooltip title="System Settings">
               <IconButton>
                 <SettingsIcon />
@@ -260,12 +346,21 @@ const LiveClassification: React.FC = () => {
 
       {/* Main Content - Two Panes */}
       <Box sx={{ flex: 1, display: 'flex', gap: 2, overflow: 'hidden' }}>
-        {/* Left Pane - Current Image */}
+        
+        {/* LEFT PANE - Current Image and Details */}
         <Paper sx={{ flex: 1, display: 'flex', flexDirection: 'column' }} elevation={2}>
           <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
               <Camera color="primary" />
               Current Item
+              {isProcessing && (
+                <Chip 
+                  label="Processing..." 
+                  size="small" 
+                  color="info" 
+                  variant="outlined" 
+                />
+              )}
             </Typography>
           </Box>
           
@@ -281,19 +376,77 @@ const LiveClassification: React.FC = () => {
 
             {currentClassification ? (
               <Card sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                <CardMedia
-                  component="img"
-                  sx={{ 
-                    height: 400, 
-                    objectFit: 'contain',
-                    bgcolor: 'grey.100'
-                  }}
-                  image={currentClassification.imageBase64 
-                    ? `data:image/jpeg;base64,${currentClassification.imageBase64}` 
-                    : '/api/placeholder/400/400'
-                  }
-                  alt="Current item being classified"
-                />
+                {/* 🖼️ IMAGE DISPLAY WITH ENHANCED FEATURES */}
+                <Box sx={{ position: 'relative' }}>
+                  {currentClassification.hasImage && apiService.getImageUrl(currentClassification) ? (
+                    <CardMedia
+                      component="img"
+                      sx={{ 
+                        height: 400, 
+                        objectFit: 'contain',
+                        bgcolor: 'grey.100',
+                        cursor: 'pointer'
+                      }}
+                      image={apiService.getImageUrl(currentClassification)!}
+                      alt="Current item being classified"
+                      onClick={() => handleImageZoom(currentClassification)}
+                    />
+                  ) : (
+                    <Box
+                      sx={{
+                        height: 400,
+                        bgcolor: 'grey.200',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexDirection: 'column',
+                        gap: 2
+                      }}
+                    >
+                      <ImageIcon sx={{ fontSize: 80, color: 'grey.400' }} />
+                      <Typography variant="body1" color="text.secondary">
+                        {currentClassification.hasImage ? 'Image Loading...' : 'No Image Available'}
+                      </Typography>
+                      {!systemStatus.cameraConnected && (
+                        <Chip 
+                          icon={<Warning />} 
+                          label="Camera Disconnected" 
+                          color="warning" 
+                          size="small" 
+                        />
+                      )}
+                    </Box>
+                  )}
+                  
+                  {/* 🖼️ IMAGE OVERLAY CONTROLS */}
+                  {currentClassification.hasImage && (
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        display: 'flex',
+                        gap: 1
+                      }}
+                    >
+                      <IconButton
+                        size="small"
+                        sx={{ bgcolor: 'rgba(0,0,0,0.6)', color: 'white' }}
+                        onClick={() => handleImageZoom(currentClassification)}
+                      >
+                        <ZoomIn />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        sx={{ bgcolor: 'rgba(0,0,0,0.6)', color: 'white' }}
+                        onClick={() => apiService.downloadClassificationImage(currentClassification.id)}
+                      >
+                        <Download />
+                      </IconButton>
+                    </Box>
+                  )}
+                </Box>
+
                 <CardContent sx={{ flex: 1 }}>
                   <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                     <Typography variant="h6" sx={{ fontWeight: 600 }}>
@@ -307,6 +460,26 @@ const LiveClassification: React.FC = () => {
                     />
                   </Box>
                   
+                  {/* 🖼️ IMAGE INFO */}
+                  {currentClassification.hasImage && (
+                    <Box display="flex" gap={1} mb={2}>
+                      <Chip
+                        icon={<ImageIcon />}
+                        label={formatImageInfo(currentClassification)}
+                        size="small"
+                        color="info"
+                        variant="outlined"
+                      />
+                      {currentClassification.imageCaptureTimestamp && (
+                        <Chip
+                          label={`Captured: ${formatTimestamp(currentClassification.imageCaptureTimestamp)}`}
+                          size="small"
+                          variant="outlined"
+                        />
+                      )}
+                    </Box>
+                  )}
+                  
                   <Box display="flex" gap={1} mb={2}>
                     <Chip
                       label={`${(currentClassification.processingTimeMs || 0).toFixed(0)}ms`}
@@ -315,229 +488,184 @@ const LiveClassification: React.FC = () => {
                       variant="outlined"
                     />
                     <Chip
-                      label={`${currentClassification.cnnStages?.totalConfidence ? 
-                        (currentClassification.cnnStages.totalConfidence * 100).toFixed(1) : 
-                        (currentClassification.finalConfidence * 100).toFixed(1)}% confidence`}
+                      label={`${(currentClassification.finalConfidence * 100).toFixed(1)}%`}
                       size="small"
                       color={getConfidenceColor(currentClassification.finalConfidence)}
                       variant="outlined"
                     />
                   </Box>
+                  
+                  <Table size="small">
+                    <TableBody>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 600 }}>Classification</TableCell>
+                        <TableCell>
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {currentClassification.finalClassification.toUpperCase()}
+                            </Typography>
+                            <Chip
+                              label={`${(currentClassification.finalConfidence * 100).toFixed(1)}%`}
+                              size="small"
+                              color={getConfidenceColor(currentClassification.finalConfidence)}
+                              variant="filled"
+                            />
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 600 }}>Disposal Location</TableCell>
+                        <TableCell>
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <LocationOn fontSize="small" color="action" />
+                            {currentClassification.disposalLocation}
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                      {currentClassification.reasoning && (
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 600 }}>Reasoning</TableCell>
+                          <TableCell>
+                            <Box display="flex" alignItems="center" gap={1}>
+                              <Psychology fontSize="small" color="action" />
+                              {currentClassification.reasoning}
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
                 </CardContent>
+
+                <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
+                  <ButtonGroup variant="outlined" size="small">
+                    <Button
+                      startIcon={<CheckCircle />}
+                      color="success"
+                      onClick={() => approveClassification(currentClassification.id)}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      startIcon={<Cancel />}
+                      color="error"
+                      onClick={() => rejectClassification(currentClassification.id, "Manual rejection")}
+                    >
+                      Reject
+                    </Button>
+                  </ButtonGroup>
+                  
+                  <Button
+                    startIcon={<Edit />}
+                    color="warning"
+                    variant="outlined"
+                    onClick={() => {
+                      setSelectedClassification(currentClassification);
+                      setOverrideDialogOpen(true);
+                    }}
+                  >
+                    Override
+                  </Button>
+                </CardActions>
               </Card>
             ) : (
               <Card sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CardContent sx={{ textAlign: 'center' }}>
-                  <Camera sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-                  <Typography variant="h6" color="text.secondary">
-                    Waiting for next item...
+                <Box textAlign="center" py={8}>
+                  <Camera sx={{ fontSize: 80, color: 'grey.400', mb: 2 }} />
+                  <Typography variant="h6" color="text.secondary" mb={1}>
+                    Waiting for item...
                   </Typography>
-                  <Typography variant="body2" color="text.disabled">
-                    Place an item on the conveyor belt to start classification
+                  <Typography variant="body2" color="text.secondary" mb={3}>
+                    Place an item in front of the camera to start classification
                   </Typography>
-                </CardContent>
+                  <Button
+                    variant="contained"
+                    startIcon={<PhotoCamera />}
+                    onClick={handleManualCapture}
+                    disabled={!systemStatus.cameraConnected}
+                  >
+                    Trigger Manual Capture
+                  </Button>
+                </Box>
               </Card>
             )}
           </Box>
         </Paper>
 
-        {/* Right Pane - Classification Results & Override */}
+        {/* RIGHT PANE - Previous Classifications */}
         <Paper sx={{ width: 400, display: 'flex', flexDirection: 'column' }} elevation={2}>
           <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Psychology color="primary" />
-              Classification Result
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Recent Classifications ({previousClassifications.length})
             </Typography>
           </Box>
-
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
-            {currentClassification ? (
-              <Box sx={{ p: 2 }}>
-                {/* Final Classification Result */}
-                <Card sx={{ mb: 2, border: 2, borderColor: 'primary.main' }}>
-                  <CardContent>
-                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                        Final Classification
+          
+          <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+            <Stack spacing={1}>
+              {previousClassifications.map((classification) => (
+                <Card key={classification.id} variant="outlined" sx={{ cursor: 'pointer' }}>
+                  <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                        {classification.finalClassification.toUpperCase()}
                       </Typography>
-                      <Chip
-                        icon={<CheckCircle />}
-                        label="Classified"
-                        color="success"
-                        size="small"
-                      />
-                    </Box>
-                    
-                    <Typography variant="h4" sx={{ fontWeight: 700, mb: 1, color: 'primary.main' }}>
-                      {currentClassification.finalClassification.replace('_', ' ').toUpperCase()}
-                    </Typography>
-                    
-                    <Box display="flex" alignItems="center" gap={1} mb={2}>
-                      <LocationOn color="action" fontSize="small" />
-                      <Typography variant="body2" color="text.secondary">
-                        {currentClassification.disposalLocation}
-                      </Typography>
-                    </Box>
-
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <Accuracy color="action" fontSize="small" />
-                      <Typography variant="body2">
-                        Confidence: <strong>{(currentClassification.finalConfidence * 100).toFixed(1)}%</strong>
-                      </Typography>
-                    </Box>
-                  </CardContent>
-                </Card>
-
-                {/* Detailed Analysis */}
-                <Card sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                      Detailed Analysis
-                    </Typography>
-                    
-                    <Table size="small">
-                      <TableBody>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 600, py: 1 }}>Stage 1 (Material)</TableCell>
-                          <TableCell sx={{ py: 1 }}>
-                            {currentClassification.cnnStages?.stage1Result?.predicted_class || 'N/A'}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 600, py: 1 }}>Stage 2 (Subtype)</TableCell>
-                          <TableCell sx={{ py: 1 }}>
-                            {currentClassification.cnnStages?.stage2Result?.predicted_class || 'N/A'}
-                          </TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 600, py: 1 }}>Processing Time</TableCell>
-                          <TableCell sx={{ py: 1 }}>
-                            {currentClassification.processingTimeMs?.toFixed(0) || '0'}ms
-                          </TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-
-                {/* Sensor Data */}
-                {currentClassification.sensorData && (
-                  <Card sx={{ mb: 2 }}>
-                    <CardContent>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-                        Sensor Validation
-                      </Typography>
-                      
-                      <Grid container spacing={1}>
-                        <Grid size={{ xs: 6 }}>
-                          <Typography variant="body2">Weight:</Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {currentClassification.sensorData.weightGrams.toFixed(1)}g
-                          </Typography>
-                        </Grid>
-                        <Grid size={{ xs: 6 }}>
-                          <Typography variant="body2">Metal:</Typography>
-                          <Chip
-                            label={currentClassification.sensorData.isMetalDetected ? 'Yes' : 'No'}
+                      <Box display="flex" alignItems="center" gap={1}>
+                        {classification.hasImage && (
+                          <IconButton 
                             size="small"
-                            color={currentClassification.sensorData.isMetalDetected ? 'success' : 'default'}
-                          />
-                        </Grid>
-                        <Grid size={{ xs: 6 }}>
-                          <Typography variant="body2">Humidity:</Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {currentClassification.sensorData.humidityPercent.toFixed(1)}%
-                          </Typography>
-                        </Grid>
-                        <Grid size={{ xs: 6 }}>
-                          <Typography variant="body2">Flexible:</Typography>
-                          <Chip
-                            label={currentClassification.sensorData.isFlexible ? 'Yes' : 'No'}
-                            size="small"
-                            color={currentClassification.sensorData.isFlexible ? 'info' : 'default'}
-                          />
-                        </Grid>
-                      </Grid>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Expert System Reasoning */}
-                <Card sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-                      Expert System Reasoning
+                            onClick={() => handleImageZoom(classification)}
+                          >
+                            <ImageIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                        <Chip
+                          label={`${(classification.finalConfidence * 100).toFixed(0)}%`}
+                          size="small"
+                          color={getConfidenceColor(classification.finalConfidence)}
+                          variant="outlined"
+                        />
+                      </Box>
+                    </Box>
+                    
+                    <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+                      {formatTimestamp(classification.timestamp)} • {classification.detectionId}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {currentClassification.reasoning}
+                    
+                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                      📍 {classification.disposalLocation}
                     </Typography>
+                    
+                    {classification.hasImage && (
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.7rem', mt: 0.5 }}>
+                        🖼️ {formatImageInfo(classification)}
+                      </Typography>
+                    )}
                   </CardContent>
                 </Card>
-              </Box>
-            ) : (
-              <Box sx={{ p: 2, textAlign: 'center' }}>
-                <InfoOutlined sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
-                <Typography variant="body1" color="text.secondary">
-                  No classification data available
-                </Typography>
-                <Typography variant="body2" color="text.disabled">
-                  Results will appear here when an item is processed
-                </Typography>
-              </Box>
-            )}
-          </Box>
-
-          {/* Override Controls */}
-          <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
-              Manual Override
-            </Typography>
-            
-            <ButtonGroup fullWidth variant="outlined" size="large">
-              <Button
-                startIcon={<CheckCircle />}
-                color="success"
-                disabled={!currentClassification}
-              >
-                Approve
-              </Button>
-              <Button
-                startIcon={<Edit />}
-                color="warning"
-                disabled={!currentClassification}
-                onClick={() => setOverrideDialogOpen(true)}
-              >
-                Override
-              </Button>
-              <Button
-                startIcon={<Cancel />}
-                color="error"
-                disabled={!currentClassification}
-              >
-                Reject
-              </Button>
-            </ButtonGroup>
-
-            <Button
-              fullWidth
-              startIcon={<Refresh />}
-              variant="text"
-              size="small"
-              sx={{ mt: 1 }}
-              disabled={!currentClassification}
-            >
-              Request Reclassification
-            </Button>
+              ))}
+            </Stack>
           </Box>
         </Paper>
       </Box>
 
-      {/* Override Dialog */}
+      {/* Dialogs */}
       <OverrideDialog
         open={overrideDialogOpen}
-        classification={currentClassification}
-        onClose={() => setOverrideDialogOpen(false)}
+        classification={selectedClassification}
+        onClose={() => {
+          setOverrideDialogOpen(false);
+          setSelectedClassification(null);
+        }}
         onConfirm={handleOverride}
+      />
+
+      <ImageZoomDialog
+        open={imageZoomDialogOpen}
+        classification={selectedClassification}
+        onClose={() => {
+          setImageZoomDialogOpen(false);
+          setSelectedClassification(null);
+        }}
       />
     </Box>
   );

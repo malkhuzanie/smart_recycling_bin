@@ -1,15 +1,6 @@
-// frontend/src/hooks/useSystemHealth.ts
-import { useState, useEffect, useCallback } from 'react';
-import { api } from '../services/api';
-import { useSignalR } from './useSignalR';
-import { SystemAlert, SystemHealth } from '../types';
-
-interface SystemAlertExtended extends SystemAlert {
-  id: number;
-  severity: string;
-  component: string;
-  isResolved: boolean;
-}
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import useSignalR from './useSignalR';
+import apiService, { SystemStatus } from '../services/api';
 
 interface SystemHealthMetrics {
   timestamp: string;
@@ -26,195 +17,317 @@ interface SystemHealthMetrics {
   cpuUsagePercent: number;
 }
 
-interface SystemHealthState {
-  metrics: SystemHealthMetrics | null;
-  alerts: SystemAlertExtended[];
-  loading: boolean;
-  error: string | null;
-  lastUpdated: Date | null;
+interface SystemAlert {
+  id: number;
+  timestamp: string;
+  level: 'info' | 'warning' | 'error' | 'critical';
+  severity: 'info' | 'warning' | 'error' | 'critical';
+  source: string;
+  component: string;
+  message: string;
+  resolved: boolean;
 }
 
-export const useSystemHealth = () => {
-  const [state, setState] = useState<SystemHealthState>({
-    metrics: null,
-    alerts: [],
-    loading: true,
-    error: null,
-    lastUpdated: null,
-  });
+interface UseSystemHealthReturn {
+  // System health data
+  health: SystemStatus | null;
+  healthSummary: any;
+  metrics: SystemHealthMetrics | null;
+  alerts: SystemAlert[];
+  latestAlert: SystemAlert | null;
+  
+  // Connection state
+  isConnected: boolean;
+  loading: boolean;
+  error: string | null;
+  
+  // Actions
+  refresh: () => Promise<void>;
+  resolveAlert: (alertId: number) => void;
+  clearAlert: (alertId: string) => void;
+  clearAllAlerts: () => void;
+  reconnect: () => Promise<boolean>;
+}
 
-  const {
-    health,
-    isConnected,
-    latestAlert,
-    requestSystemStatus,
-    error: signalRError
-  } = useSignalR();
+export const useSystemHealth = (): UseSystemHealthReturn => {
+  // State management
+  const [health, setHealth] = useState<SystemStatus | null>(null);
+  const [metrics, setMetrics] = useState<SystemHealthMetrics | null>(null);
+  const [alerts, setAlerts] = useState<SystemAlert[]>([]);
+  const [latestAlert, setLatestAlert] = useState<SystemAlert | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [healthError, setHealthError] = useState<string | null>(null);
 
-  // Load initial system health data
-  const loadSystemHealth = useCallback(async () => {
-    try {
-      setState(prev => ({ ...prev, loading: true, error: null }));
-
-      // Try to request real-time status update (with retry built into signalr service)
-      try {
-        console.log('Requesting system status...');
-        await requestSystemStatus();
-        console.log('System status request successful');
-      } catch (statusError) {
-        console.warn('Failed to request system status, continuing with alerts:', statusError);
-        // Don't fail completely, just continue with loading alerts
-      }
-
-      // Load active alerts (this is an HTTP call, not SignalR)
-      console.log('Loading active alerts...');
-      const alerts = await api.getActiveAlerts();
-      console.log('Active alerts loaded:', alerts.length);
-      
-      setState(prev => ({
-        ...prev,
-        alerts: alerts,
-        loading: false,
-        lastUpdated: new Date(),
-      }));
-
-    } catch (err) {
-      console.error('Failed to load system health:', err);
-      setState(prev => ({
-        ...prev,
-        error: err instanceof Error ? err.message : 'Failed to load system health',
-        loading: false,
-      }));
+  // Create health summary with component counts
+  const healthSummary = useMemo(() => {
+    if (!health) {
+      return {
+        healthyComponents: 0,
+        warningComponents: 0,
+        errorComponents: 4, // Assume all are down initially
+        overall: 'error',
+      };
     }
-  }, [requestSystemStatus]);
+    const components = [
+      health.cameraConnected,
+      health.cnnServiceHealthy,
+      health.arduinoConnected,
+      health.expertSystemHealthy,
+    ];
+    const healthyCount = components.filter(c => c === true).length;
+    const errorCount = components.filter(c => c === false).length;
 
-  // Update metrics when health data changes from SignalR
-  useEffect(() => {
-    if (health) {
-      setState(prev => ({
-        ...prev,
-        metrics: {
-          timestamp: health.timestamp as string,
-          cameraConnected: health.cameraConnected,
-          arduinoConnected: health.arduinoConnected,
-          cnnServiceHealthy: health.cnnServiceHealthy,
-          expertSystemHealthy: health.expertSystemHealthy,
-          avgProcessingTimeMs: health.avgProcessingTimeMs,
-          totalItemsProcessed: health.totalItemsProcessed,
-          accuracyRate: health.accuracyRate,
-          classificationCounts: health.classificationCounts,
-          systemUptime: health.systemUptime,
-          memoryUsageMB: health.memoryUsageMB,
-          cpuUsagePercent: health.cpuUsagePercent || 0,
-        },
-        loading: false,
-      }));
+    let overallStatus = 'healthy';
+    if (errorCount > 0) {
+        overallStatus = 'error';
+    } else if (healthyCount < components.length) {
+        overallStatus = 'warning';
     }
+
+    return {
+      healthyComponents: healthyCount,
+      warningComponents: 0, // No specific warning logic currently
+      errorComponents: errorCount,
+      overall: overallStatus,
+    };
   }, [health]);
 
-  // Handle new alerts from SignalR
-  useEffect(() => {
-    if (latestAlert) {
-      const newAlert: SystemAlertExtended = {
-        ...latestAlert,
-        id: Date.now(), // Temporary ID for new alerts
-        severity: latestAlert.level || 'info',
-        component: latestAlert.component || latestAlert.source,
-        isResolved: false,
-      };
-
-      setState(prev => ({
-        ...prev,
-        alerts: [newAlert, ...prev.alerts.slice(0, 9)], // Keep latest 10
-      }));
-    }
-  }, [latestAlert]);
-
-  // Load data when connection is established
-  useEffect(() => {
-    if (isConnected) {
-      // Add a small delay to ensure connections are fully ready
-      const timer = setTimeout(() => {
-        console.log('Connection established, loading system health data...');
+  // SignalR connection - Fixed to use new signature
+  const {
+    isConnected,
+    lastMessage,
+    error: signalRError,
+    reconnect: signalRReconnect,
+    sendMessage,
+    joinGroup
+  } = useSignalR(
+    `${process.env.REACT_APP_WS_URL}/hubs/systemhealth`,
+    {
+      autoConnect: true,
+      autoJoinGroup: 'systemhealth', // Auto-join Classification group
+      reconnectAttempts: 3,
+      reconnectInterval: 5000,
+      onConnected: () => {
+        console.log('System Health SignalR connected');
         loadSystemHealth();
-      }, 1000);
-
-      return () => clearTimeout(timer);
+      },
+      onError: (error: Error) => {
+        setHealthError(error.message);
+      },
     }
-  }, [isConnected, loadSystemHealth]);
+  );
 
-  // Refresh system health data
-  const refresh = useCallback(async () => {
-    await loadSystemHealth();
-  }, [loadSystemHealth]);
+  // Handle SignalR messages
+  useEffect(() => {
+    if (!lastMessage) return;
 
-  // Resolve an alert
-  const resolveAlert = useCallback(async (alertId: number, resolvedBy: string = 'Dashboard User') => {
+    const { type, data, timestamp } = lastMessage;
+
+    console.error("HELL");
+    console.error(type, data, timestamp);
+    switch (type) {
+      case 'InitialHealthStatus':
+        console.log('Handling InitialHealthStatus in hook:', data);
+        setMetrics(data); 
+        break;
+
+      case 'HealthUpdate':
+          console.log('Received health update:', data);
+          setMetrics(data);
+          break;
+
+      case 'SystemAlert':
+          console.log('Received system alert:', data);
+          setAlerts(prev => [data, ...prev.slice(0, 19)]);
+          break;
+
+      case 'system_status':
+        setHealth(data);
+        break;
+      
+      case 'system_metrics':
+        setMetrics(data);
+        break;
+      
+      case 'system_alert':
+        const alert: SystemAlert = {
+          id: parseInt(data.id) || Date.now(),
+          timestamp: timestamp,
+          level: data.level || 'info',
+          severity: data.level || 'info',
+          source: data.source || 'system',
+          component: data.source || 'system',
+          message: data.message || 'System alert',
+          resolved: false,
+        };
+        
+        setAlerts(prev => [alert, ...prev.slice(0, 19)]);
+        setLatestAlert(alert);
+        break;
+      
+      case 'alert_resolved':
+        setAlerts(prev => prev.map(alert => 
+          alert.id === data.alertId 
+            ? { ...alert, resolved: true }
+            : alert
+        ));
+        break;
+      
+      case 'error':
+        setHealthError(data.message || 'System error');
+        break;
+    }
+  }, [lastMessage]);
+
+  // Load system health data
+  const loadSystemHealth = useCallback(async () => {
+    setLoading(true);
+    setHealthError(null);
+
     try {
-      await api.resolveAlert(alertId, resolvedBy);
-      setState(prev => ({
-        ...prev,
-        alerts: prev.alerts.filter(alert => alert.id !== alertId),
-      }));
-      return true;
-    } catch (err) {
-      console.error('Failed to resolve alert:', err);
-      setState(prev => ({
-        ...prev,
-        error: 'Failed to resolve alert',
-      }));
-      return false;
+      const systemHealth = await apiService.getSystemStatus();
+      setHealth(systemHealth);
+      
+      // Generate mock metrics (in real implementation, this would come from API)
+      const mockMetrics: SystemHealthMetrics = {
+        timestamp: new Date().toISOString(),
+        cameraConnected: systemHealth.cameraConnected,
+        arduinoConnected: systemHealth.arduinoConnected,
+        cnnServiceHealthy: systemHealth.cnnServiceHealthy,
+        expertSystemHealthy: systemHealth.expertSystemHealthy,
+        avgProcessingTimeMs: 125.5,
+        totalItemsProcessed: 1247,
+        accuracyRate: 0.94,
+        classificationCounts: {
+          plastic: 456,
+          metal: 234,
+          glass: 189,
+          paper: 298,
+          cardboard: 70,
+        },
+        systemUptime: 72.5,
+        memoryUsageMB: 512.3,
+        cpuUsagePercent: 23.7,
+      };
+      
+      setMetrics(mockMetrics);
+    } catch (error) {
+      console.error('Failed to load system health:', error);
+      setHealthError(error instanceof Error ? error.message : 'Failed to load system health');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  // Get system health summary
-  const getHealthSummary = useCallback(() => {
-    if (!state.metrics) {
-      return {
-        overallHealthy: false,
-        healthyComponents: 0,
-        warningComponents: 0,
-        errorComponents: 0,
-        totalComponents: 0,
-      };
+  // Clear specific alert
+  const clearAlert = useCallback((alertId: string) => {
+    setAlerts(prev => prev.filter(alert => alert.id.toString() !== alertId));
+    
+    if (latestAlert && latestAlert.id.toString() === alertId) {
+      const remaining = alerts.filter(alert => alert.id.toString() !== alertId);
+      setLatestAlert(remaining.length > 0 ? remaining[0] : null);
     }
+  }, [alerts, latestAlert]);
 
-    const components = [
-      { name: 'CNN Service', healthy: state.metrics.cnnServiceHealthy },
-      { name: 'Expert System', healthy: state.metrics.expertSystemHealthy },
-      { name: 'Camera', healthy: state.metrics.cameraConnected },
-      { name: 'Arduino', healthy: state.metrics.arduinoConnected },
-      { name: 'Network', healthy: isConnected },
-      { name: 'Memory', healthy: state.metrics.memoryUsageMB < 8000 }, // 8GB threshold
-    ];
+  // Resolve alert (compatibility method)
+  const resolveAlert = useCallback((alertId: number) => {
+    setAlerts(prev => prev.map(alert => 
+      alert.id === alertId 
+        ? { ...alert, resolved: true }
+        : alert
+    ));
+    
+    if (latestAlert && latestAlert.id === alertId) {
+      setLatestAlert(prev => prev ? { ...prev, resolved: true } : null);
+    }
+  }, [latestAlert]);
 
-    const healthyComponents = components.filter(c => c.healthy).length;
-    const errorComponents = components.filter(c => !c.healthy).length;
-    const warningComponents = 0; // Could add logic for warning states
+  // Refresh health data (compatibility method)
+  const refresh = useCallback(async () => {
+    console.log("Refreshing system health via REST API...");
+    await loadSystemHealth();
+  }, [loadSystemHealth]);
 
-    return {
-      overallHealthy: errorComponents === 0,
-      healthyComponents,
-      warningComponents,
-      errorComponents,
-      totalComponents: components.length,
-    };
-  }, [state.metrics, isConnected]);
+  // Clear all alerts
+  const clearAllAlerts = useCallback(() => {
+    setAlerts([]);
+    setLatestAlert(null);
+  }, []);
+
+  // Reconnect wrapper
+  const reconnect = useCallback(async (): Promise<boolean> => {
+    const success = await signalRReconnect();
+    if (success) {
+      await loadSystemHealth();
+    }
+    return success;
+  }, [signalRReconnect, loadSystemHealth]);
+
+  // Load initial data on mount
+  useEffect(() => {
+    loadSystemHealth();
+  }, [loadSystemHealth]);
+
+  // Auto-refresh when connected
+  useEffect(() => {
+    if (isConnected) {
+      loadSystemHealth();
+    }
+  }, [isConnected, loadSystemHealth]);
+
+  // Periodic health checks
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const interval = setInterval(() => {
+      // requestSystemStatus();
+    }, 60000); // Every minute
+
+    return () => clearInterval(interval);
+  }, [isConnected /*, requestSystemStatus */]);
+
+  // Generate sample alerts for testing
+  useEffect(() => {
+    // Create a sample alert on connection for demonstration
+    if (isConnected && alerts.length === 0) {
+      const sampleAlert: SystemAlert = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        severity: 'info',
+        source: 'system',
+        component: 'system',
+        message: 'System health monitoring active',
+        resolved: false,
+      };
+      
+      setAlerts([sampleAlert]);
+      setLatestAlert(sampleAlert);
+    }
+  }, [isConnected, alerts.length]);
+
+  // Combine errors
+  const combinedError = healthError || signalRError;
 
   return {
-    // State
-    metrics: state.metrics,
-    alerts: state.alerts,
-    loading: state.loading,
-    error: state.error || signalRError,
-    lastUpdated: state.lastUpdated,
-    isConnected,
+    // System health data
+    health,
+    healthSummary,
+    metrics,
+    alerts,
+    latestAlert,
     
-    // Computed values
-    healthSummary: getHealthSummary(),
+    // Connection state
+    isConnected,
+    loading,
+    error: combinedError,
     
     // Actions
     refresh,
     resolveAlert,
+    clearAlert,
+    clearAllAlerts,
+    reconnect,
   };
 };
+

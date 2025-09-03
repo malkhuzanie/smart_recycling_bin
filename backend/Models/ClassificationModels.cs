@@ -1,49 +1,37 @@
 using System.ComponentModel.DataAnnotations;
-using System.Text.Json.Serialization;
 
 namespace SmartRecyclingBin.Models
 {
     public class ClassificationResult
     {
         public int Id { get; set; }
-        
-        [Required]
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
         
-        // CNN Prediction Data
+        // Detection ID for tracing
+        [MaxLength(100)]
+        public string DetectionId { get; set; } = string.Empty;
+        
+        // CNN Prediction data
         [Required]
         [MaxLength(100)]
         public string CnnPredictedClass { get; set; } = string.Empty;
-        
-        [Range(0.0, 1.0)]
         public double CnnConfidence { get; set; }
-        
         public int CnnStage { get; set; }
-        
-        [Range(0, double.MaxValue)]
         public double ProcessingTimeMs { get; set; }
         
-        // Sensor Data
-        [Range(0, double.MaxValue)]
+        // Sensor data
         public double WeightGrams { get; set; }
-        
         public bool IsMetalDetected { get; set; }
-        
-        [Range(0, 100)]
         public double HumidityPercent { get; set; }
-        
         public double TemperatureCelsius { get; set; }
-        
         public bool IsMoist { get; set; }
         public bool IsTransparent { get; set; }
         public bool IsFlexible { get; set; }
         
-        // Expert System Results
+        // Expert system results
         [Required]
         [MaxLength(100)]
         public string FinalClassification { get; set; } = string.Empty;
-        
-        [Range(0.0, 1.0)]
         public double FinalConfidence { get; set; }
         
         [Required]
@@ -55,8 +43,27 @@ namespace SmartRecyclingBin.Models
         
         public int CandidatesCount { get; set; }
         
-        // Override Information
-        public bool IsOverridden { get; set; }
+        public string? ImageBase64 { get; set; }
+        public DateTime? ImageCaptureTimestamp { get; set; }
+        public long? ImageSizeBytes { get; set; }
+        
+        [MaxLength(10)]
+        public string? ImageFormat { get; set; }
+        
+        [MaxLength(20)]
+        public string? ImageDimensions { get; set; }
+        
+        public bool HasImage { get; set; } = false;
+        
+        // Processing pipeline tracking
+        [MaxLength(1000)]
+        public string? ProcessingPipeline { get; set; }
+        
+        [MaxLength(2000)]
+        public string? ValidationResults { get; set; }
+        
+        // Override information
+        public bool IsOverridden { get; set; } = false;
         [MaxLength(500)]
         public string? OverrideReason { get; set; }
         [MaxLength(100)]
@@ -64,6 +71,8 @@ namespace SmartRecyclingBin.Models
         [MaxLength(100)]
         public string? OverrideClassification { get; set; }
         public DateTime? OverrideTimestamp { get; set; }
+        public double? IrTransparency { get; set; }
+        public string? OverrideUserId { get; set; }
     }
 
     public class SystemHealthMetrics
@@ -80,6 +89,53 @@ namespace SmartRecyclingBin.Models
         public double SystemUptime { get; set; }
         public double MemoryUsageMB { get; set; }
         public double CpuUsagePercent { get; set; }
+    }
+
+    // 🔧 FIXED: Match the existing properties from your project
+    public class ClassificationStatistics
+    {
+        public int TotalItems { get; set; }
+        public double AccuracyRate { get; set; }
+        public double AvgProcessingTime { get; set; }
+        public Dictionary<string, int> ClassificationBreakdown { get; set; } = new(); // ✅ This property exists
+        public double OverrideRate { get; set; }
+        public int ItemsToday { get; set; }
+        public int ItemsThisWeek { get; set; }
+        public int ItemsThisMonth { get; set; }
+        public DateTime LastClassification { get; set; }
+        public List<HourlyStats> HourlyBreakdown { get; set; } = new();
+    }
+
+    public class HourlyStats
+    {
+        public DateTime Hour { get; set; }
+        public int Count { get; set; }
+        public double AvgAccuracy { get; set; }
+    }
+
+    // 🔧 FIXED: SystemAlert with correct properties
+    public class SystemAlert
+    {
+        public int Id { get; set; }
+        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+        
+        [Required]
+        [MaxLength(20)]
+        public string Severity { get; set; } = string.Empty; // INFO, WARNING, ERROR, CRITICAL
+        
+        [Required]
+        [MaxLength(100)]
+        public string Component { get; set; } = string.Empty;
+        
+        [Required]
+        [MaxLength(500)]
+        public string Message { get; set; } = string.Empty;
+        
+        public bool IsResolved { get; set; } = false;
+        public DateTime? ResolvedTimestamp { get; set; } // ✅ This property exists
+        
+        [MaxLength(100)]
+        public string? ResolvedBy { get; set; }
     }
 
     public class ManualOverrideRequest
@@ -113,6 +169,8 @@ namespace SmartRecyclingBin.Models
         public SensorData Sensors { get; set; } = new();
         
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+        
+        public string DetectionId { get; set; } = string.Empty;
     }
 
     public class SensorData
@@ -127,36 +185,54 @@ namespace SmartRecyclingBin.Models
         public double IrTransparency { get; set; }
     }
 
-    public class ClassificationStatistics
+    public class ImageStorageStats
     {
-        public int TotalItems { get; set; }
-        public double AccuracyRate { get; set; }
-        public double AvgProcessingTime { get; set; }
-        public Dictionary<string, int> ClassificationBreakdown { get; set; } = new();
-        public double OverrideRate { get; set; }
-        public int ItemsToday { get; set; }
-        public int ItemsThisWeek { get; set; }
-        public int ItemsThisMonth { get; set; }
-        public DateTime LastClassification { get; set; }
-        public List<HourlyStats> HourlyBreakdown { get; set; } = new();
+        public int TotalImagesStored { get; set; }
+        public long TotalStorageSizeBytes { get; set; }
+        public double AverageImageSizeBytes { get; set; }
+        public DateTime? OldestImageDate { get; set; }
+        public DateTime? NewestImageDate { get; set; }
+        
+        public double TotalStorageSizeMB => TotalStorageSizeBytes / (1024.0 * 1024.0);
+        public double AverageImageSizeMB => AverageImageSizeBytes / (1024.0 * 1024.0);
     }
 
-    public class HourlyStats
-    {
-        public DateTime Hour { get; set; }
-        public int Count { get; set; }
-        public double AvgAccuracy { get; set; }
-    }
-
-    public class SystemAlert
+    public class ClassificationWithImageDto
     {
         public int Id { get; set; }
-        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
-        public string Severity { get; set; } = string.Empty; // INFO, WARNING, ERROR, CRITICAL
-        public string Component { get; set; } = string.Empty;
-        public string Message { get; set; } = string.Empty;
-        public bool IsResolved { get; set; }
-        public DateTime? ResolvedTimestamp { get; set; }
-        public string? ResolvedBy { get; set; }
+        public string DetectionId { get; set; } = string.Empty;
+        public DateTime Timestamp { get; set; }
+        public string FinalClassification { get; set; } = string.Empty;
+        public double FinalConfidence { get; set; }
+        public string DisposalLocation { get; set; } = string.Empty;
+        public string Reasoning { get; set; } = string.Empty;
+        public double ProcessingTimeMs { get; set; }
+        public bool HasImage { get; set; }
+        
+        // Image metadata (but not the actual image data for performance)
+        public DateTime? ImageCaptureTimestamp { get; set; }
+        public long? ImageSizeBytes { get; set; }
+        public string? ImageFormat { get; set; }
+        public string? ImageDimensions { get; set; }
+        
+        // Sensor data
+        public SensorData? SensorData { get; set; }
+        
+        // Processing info
+        public string? ProcessingPipeline { get; set; }
+        public bool IsOverridden { get; set; }
+    }
+
+    public class ImageDataDto
+    {
+        [Required]
+        public string ImageBase64 { get; set; } = string.Empty;
+        
+        [Required]
+        public string Format { get; set; } = "jpeg";
+        
+        public string? Dimensions { get; set; }
+        public long SizeBytes { get; set; }
+        public DateTime CaptureTimestamp { get; set; } = DateTime.UtcNow;
     }
 }

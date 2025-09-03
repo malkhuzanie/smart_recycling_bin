@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using SmartRecyclingBin.Data;
 using SmartRecyclingBin.Models;
 using System.Diagnostics;
+using Microsoft.AspNetCore.SignalR;
+using SmartRecyclingBin.Hubs;
 
 namespace SmartRecyclingBin.Services
 {
@@ -11,17 +13,20 @@ namespace SmartRecyclingBin.Services
         private readonly ILogger<SystemHealthService> _logger;
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
+        private readonly IHubContext<SystemHealthHub> _healthHubContext;
 
         public SystemHealthService(
             ApplicationDbContext context,
             ILogger<SystemHealthService> logger,
             IHttpClientFactory httpClientFactory,
-            IConfiguration configuration)
+            IConfiguration configuration, 
+            IHubContext<SystemHealthHub> healthHubContext)
         {
             _context = context;
             _logger = logger;
             _httpClient = httpClientFactory.CreateClient();
             _configuration = configuration;
+            _healthHubContext = healthHubContext;
         }
 
         public async Task<SystemHealthMetrics> GetCurrentHealthAsync()
@@ -66,6 +71,9 @@ namespace SmartRecyclingBin.Services
                 metrics.MemoryUsageMB = process.WorkingSet64 / 1024.0 / 1024.0;
                 metrics.SystemUptime = (DateTime.UtcNow - process.StartTime).TotalHours;
 
+                await _healthHubContext.Clients.Group("HealthMonitor").SendAsync("HealthUpdate", metrics);
+                _logger.LogInformation("Broadcasted health update to SystemHealthHub.");
+                
                 // Log the metrics
                 await LogHealthMetricsAsync(metrics);
 

@@ -51,6 +51,7 @@ builder.Services.AddSignalR(options =>
         options.EnableDetailedErrors = builder.Environment.IsDevelopment();
         options.KeepAliveInterval = TimeSpan.FromSeconds(15);
         options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+        options.MaximumReceiveMessageSize = 2 * 1024 * 1024;
     })
     .AddJsonProtocol(options =>
     {
@@ -170,6 +171,7 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<ClassificationHub>("/hubs/classification");
 app.MapHub<DashboardHub>("/hubs/dashboard");
+app.MapHub<SystemHealthHub>("/hubs/systemhealth"); 
 
 // Map health checks
 app.MapHealthChecks("/health");

@@ -8,7 +8,10 @@ namespace SmartRecyclingBin.Models
         public int PageSize { get; set; }
         public int TotalPages { get; set; }
         public bool HasPreviousPage => Page > 1;
-        public bool HasNextPage => Page < TotalPages;
+        public bool HasNextPage
+        {
+            get => Page < TotalPages;
+        }
     }
 }
 

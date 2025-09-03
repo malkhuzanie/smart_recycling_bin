@@ -94,9 +94,9 @@ namespace SmartRecyclingBin.Controllers
         /// </summary>
         /// <param name="criteria">Search criteria</param>
         /// <returns>List of matching classifications</returns>
-        [HttpPost("search")]
-        public async Task<ActionResult<List<ClassificationResult>>> SearchClassifications(
-            [FromBody] ClassificationSearchCriteria criteria)
+        [HttpGet("search")]
+        public async Task<ActionResult<PagedResult<ClassificationResult>>> SearchClassifications(
+            [FromQuery] ClassificationSearchCriteria criteria)
         {
             if (!ModelState.IsValid)
             {
@@ -106,7 +106,23 @@ namespace SmartRecyclingBin.Controllers
             try
             {
                 var results = await _classificationService.SearchClassificationsAsync(criteria);
-                return Ok(results);
+                
+                // Note: This simplified search does not support full pagination. 
+                // TotalCount reflects the returned items, not the total in the database.
+                var totalCount = results.Count;
+                var limit = criteria.Limit ?? 100;
+                if (limit == 0) limit = 100;
+
+                var pagedResult = new PagedResult<ClassificationResult>
+                {
+                    Items = results,
+                    TotalCount = totalCount,
+                    Page = 1,
+                    PageSize = results.Count,
+                    TotalPages = (int)Math.Ceiling((double)totalCount / limit)
+                };
+
+                return Ok(pagedResult);
             }
             catch (Exception ex)
             {
@@ -114,7 +130,7 @@ namespace SmartRecyclingBin.Controllers
                 return StatusCode(500, new { error = "Internal server error" });
             }
         }
-
+        
         /// <summary>
         /// Get classification statistics for a date range
         /// </summary>
@@ -392,6 +408,37 @@ namespace SmartRecyclingBin.Controllers
             }
             
             return csv.ToString();
+        }
+        
+        /// <summary>
+        /// Get a specific classification by ID, including the full Base64 image data
+        /// </summary>
+        /// <param name="id">Classification ID</param>
+        /// <returns>Classification result with image data</returns>
+        [HttpGet("{id:int}/with-image")]
+        public async Task<ActionResult<ClassificationResult>> GetClassificationWithImage(int id)
+        {
+            if (id <= 0)
+            {
+                return BadRequest(new { error = "Invalid classification ID" });
+            }
+
+            try
+            {
+                var classification = await _classificationService.GetClassificationWithImageAsync(id);
+        
+                if (classification == null)
+                {
+                    return NotFound(new { error = $"Classification with ID {id} not found" });
+                }
+        
+                return Ok(classification);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving classification {Id} with image", id);
+                return StatusCode(500, new { error = "Internal server error" });
+            }
         }
     }
 }
