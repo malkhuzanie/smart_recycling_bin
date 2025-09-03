@@ -4,10 +4,9 @@ EXPOSE 5000
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
-COPY ["*.csproj", "./"]
+# 🔄 UPDATED: Copy the entire backend directory to handle project references if any
+COPY backend/. ./
 RUN dotnet restore
-
-COPY . .
 RUN dotnet build -c Release -o /app/build
 
 FROM build AS publish
@@ -20,8 +19,8 @@ COPY --from=publish /app/publish .
 # Create directories for data and logs
 RUN mkdir -p /app/data /app/logs
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5000/api/health || exit 1
+# 🔄 UPDATED: Point health check to the more specific /health endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
 
 ENTRYPOINT ["dotnet", "SmartRecyclingBin.dll"]
