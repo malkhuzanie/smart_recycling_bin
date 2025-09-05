@@ -5,6 +5,7 @@ using SmartRecyclingBin.Hubs;
 using SmartRecyclingBin.Services;
 using System.Text.Json;
 using Serilog;
+using SmartRecyclingBin.Logging;
 using SmartRecyclingBin.Middleware;
 using SmartRecyclingBin.Models;
 
@@ -15,7 +16,7 @@ Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
     .WriteTo.Console()
-    .WriteTo.File("logs/smart-recycling-bin-.txt", rollingInterval: RollingInterval.Day)
+    .WriteTo.File("../logs/smart-recycling-bin-.txt", rollingInterval: RollingInterval.Day)
     .CreateLogger();
 
 builder.Host.UseSerilog();
@@ -106,6 +107,7 @@ builder.Services.AddScoped<IClassificationService, ClassificationService>();
 builder.Services.AddScoped<IOverrideService, OverrideService>();
 builder.Services.AddScoped<ISystemHealthService, SystemHealthService>();
 builder.Services.AddSingleton<INotificationService, NotificationService>();
+builder.Services.AddScoped<ILogService, LogService>();
 
 // Add HTTP client for external service calls
 builder.Services.AddHttpClient("PythonServices", client => { client.Timeout = TimeSpan.FromSeconds(10); });
@@ -129,6 +131,7 @@ builder.Services.AddLogging(logging =>
 {
     logging.ClearProviders();
     logging.AddSerilog();
+    logging.AddSignalRLogger();
     logging.SetMinimumLevel(LogLevel.Information);
 });
 
@@ -172,6 +175,7 @@ app.MapControllers();
 app.MapHub<ClassificationHub>("/hubs/classification");
 app.MapHub<DashboardHub>("/hubs/dashboard");
 app.MapHub<SystemHealthHub>("/hubs/systemhealth"); 
+app.MapHub<LogHub>("/hubs/logs");
 
 // Map health checks
 app.MapHealthChecks("/health");

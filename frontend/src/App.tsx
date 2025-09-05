@@ -7,8 +7,8 @@ import Dashboard from './components/Dashboard/Dashboard';
 import LiveClassification from './components/LiveClassification/LiveClassification';
 import ClassificationHistory from './components/Classification/ClassificationHistory';
 import SystemHealth from './components/System/SystemHealth';
+import LogsPage from './components/Logs/LogsPage';
 
-// Create Material-UI theme with professional styling
 const theme = createTheme({
   palette: {
     mode: 'light',
@@ -239,6 +239,8 @@ const App: React.FC = () => {
             {/* Existing routes */}
             <Route path="/classifications" element={<ClassificationHistory />} />
             <Route path="/system" element={<SystemHealth />} />
+            <Route path="/logs" element={<LogsPage />} /> 
+            
             
             {/* Future routes can be added here */}
             {/* 

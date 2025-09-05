@@ -463,6 +463,19 @@ class APIService {
       return false;
     }
   }
+
+  async getLogFile(fileName: string, lines: number): Promise<string[]> {
+    try {
+      const response = await this.api.get<string[]>(`/api/logs/${fileName}`, {
+        params: { lines },
+      });
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to fetch log file ${fileName}:`, error);
+      throw error;
+    }
+  }
+
 }
 
 // Export singleton instance

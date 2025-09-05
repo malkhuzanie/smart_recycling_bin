@@ -8,20 +8,38 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
+from services.SignalRLogHandler import SignalRLogHandler
 
 # Setup comprehensive logging FIRST
 log_dir = Path(__file__).parent.parent / "logs"
 log_dir.mkdir(exist_ok=True)
 log_file = log_dir / "orchestrated_services.log"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+# Get the root logger to capture logs from all modules
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+# Create a standard formatter
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Create standard handlers (file and console)
+file_handler = logging.FileHandler(log_file)
+file_handler.setFormatter(formatter)
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setFormatter(formatter)
+
+# Add standard handlers to the root logger
+root_logger.addHandler(file_handler)
+root_logger.addHandler(stream_handler)
+
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+#     handlers=[
+#         logging.FileHandler(log_file),
+#         logging.StreamHandler(sys.stdout)
+#     ]
+# )
 
 # Silence overly verbose libraries
 logging.getLogger("websockets").setLevel(logging.WARNING)
@@ -179,11 +197,31 @@ class SmartRecyclingBinOrchestrator:
             'arduino_port': os.getenv('ARDUINO_PORT', '/dev/ttyUSB0'),
             'arduino_baudrate': int(os.getenv('ARDUINO_BAUDRATE', '9600')),
             'backend_hub_url': os.getenv('BACKEND_URL', 'http://localhost:5099/hubs/classification'),
+            'backend_log_hub_url': os.getenv('BACKEND_LOG_HUB_URL', 'http://localhost:5099/hubs/logs'),
             'camera_index': int(os.getenv('CAMERA_INDEX', '0')),
             'health_port_cnn': int(os.getenv('CNN_HEALTH_PORT', '8001')),
             'health_port_arduino': int(os.getenv('ARDUINO_HEALTH_PORT', '8002'))
         }
+
+        self.setup_signalr_logging()
     
+    def setup_signalr_logging(self):
+        """Adds a custom handler to stream logs to the SignalR LogHub."""
+        self.logger.info("📡 Setting up SignalR real-time log streaming...")
+        try:
+            log_hub_url = self.config['backend_log_hub_url']
+            service_name = "python-services"  # This is the SignalR group name
+            
+            signalr_handler = SignalRLogHandler(log_hub_url, service_name)
+            signalr_handler.setLevel(logging.INFO)
+            signalr_handler.setFormatter(formatter)
+            
+            root_logger.addHandler(signalr_handler)
+            self.logger.info("✅ Real-time log streaming to dashboard is active.")
+        except Exception as e:
+            self.logger.error(f"❌ Failed to set up SignalR logging: {e}")
+
+
     async def setup_health_servers(self):
         """Setup HTTP health check servers"""
         self.logger.info("🏥 Setting up health check servers...")

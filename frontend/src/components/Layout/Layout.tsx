@@ -31,6 +31,7 @@ import {
   Analytics,
   Visibility,
   CameraAlt,
+  Description as LogsIcon, 
   MonitorHeart,
   Assessment,
 } from '@mui/icons-material';
@@ -93,6 +94,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       path: '/system',
       color: '#d32f2f',
       description: 'System Monitoring',
+    },
+    {
+      text: 'Logs',
+      icon: <LogsIcon />,
+      path: '/logs',
+      color: '#546e7a',
+      description: 'Live Service Logs',
     },
     {
       text: 'Analytics',
