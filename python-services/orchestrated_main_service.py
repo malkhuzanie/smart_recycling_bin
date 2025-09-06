@@ -347,10 +347,8 @@ class SmartRecyclingBinOrchestrator:
         self.logger.info("🔧 Initializing services...")
         
         # Initialize CNN Service
-        self.services['cnn'] = CNNService(
-            self.config['model_path'],
-            self.config['backend_hub_url']
-        )
+        self.services['cnn'] = CNNService(self.config['backend_hub_url'])
+
         self.logger.info("✅ CNN Service initialized")
         
         # Initialize Arduino Service
