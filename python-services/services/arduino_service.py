@@ -66,6 +66,7 @@ class ArduinoService:
             await asyncio.sleep(2) # Give Arduino time to reset after connection
             
             if self.serial_connection.is_open:
+                self.serial_connection.reset_input_buffer() # Clears any startup messages
                 self.is_connected = True
                 self.logger.info(f"✅ Connected to Arduino on {self.port}")
                 return True
@@ -75,7 +76,7 @@ class ArduinoService:
         self.is_connected = False
         self.logger.warning("Running in Arduino simulation mode.")
         return False
-
+ 
     async def sensor_monitoring_worker(self):
         """The main loop that continuously polls the Arduino for sensor data."""
         while True:
@@ -104,7 +105,7 @@ class ArduinoService:
         """Handles the logic when a new item is detected."""
         self.processing_state = "processing"
         detection_id = f"item_{int(datetime.now().timestamp())}"
-        self.logger.info(f"📦 Item Detected! ID: {detection_id}, Weight: {sensor_data.get('weight_grams'):.2f}g")
+        self.logger.info(f" Item Detected! ID: {detection_id}, Weight: {sensor_data.get('weight_grams'):.2f}g")
 
         if self.cnn_service:
             self.logger.info(f"-> Triggering full classification pipeline in CNNService...")
@@ -117,7 +118,7 @@ class ArduinoService:
 
     async def handle_item_removed(self):
         """Handles the logic when an item is removed."""
-        self.logger.info("✅ Item removed. System is idle and ready for next item.")
+        self.logger.info(" Item removed. System is idle and ready for next item.")
         self.processing_state = "idle"
 
     async def read_sensors(self) -> Optional[Dict]:
@@ -180,9 +181,9 @@ class ArduinoService:
         
         if weight_samples:
             self.weight_offset = sum(weight_samples) / len(weight_samples)
-            self.logger.info(f"✅ Weight sensor tare complete. Offset: {self.weight_offset:.2f}g")
+            self.logger.info(f" Weight sensor tare complete. Offset: {self.weight_offset:.2f}g")
         else:
-            self.logger.error("❌ Calibration failed. Could not read from scale.")
+            self.logger.error(" Calibration failed. Could not read from scale.")
 
     async def heartbeat_worker(self):
         """Sends a periodic heartbeat to the backend."""

@@ -1,7 +1,6 @@
 experta>=1.9.4
 
 # Machine learning and computer vision
-tensorflow>=2.12.0
 opencv-python>=4.7.0
 numpy>=1.24.0
 

@@ -295,3 +295,54 @@ class CNNService:
             self.camera.release()
         await self.hub_client.disconnect()
         self.logger.info("🧹 CNN service cleanup complete.")
+
+    # --- PASTE THESE THREE METHODS INTO YOUR CNNService CLASS ---
+
+    async def initialize_camera(self):
+        """Initializes the camera for image capture."""
+        try:
+            camera_index = int(os.getenv('CAMERA_INDEX', '1'))
+            self.logger.info(f"Initializing camera index {camera_index}...")
+            
+            self.camera = cv2.VideoCapture(camera_index)
+            
+            if not self.camera.isOpened():
+                self.logger.warning("Failed to open camera, will use mock data.")
+                self.camera = None
+                return
+
+            # Optional: Configure camera settings
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            
+            # Warm up camera
+            for _ in range(5):
+                ret, _ = self.camera.read()
+                if not ret: break
+                    
+            self.logger.info("✅ Camera initialized successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Camera initialization failed: {e}")
+            self.camera = None
+
+    async def heartbeat_worker(self):
+        """Sends a periodic heartbeat to the backend."""
+        while True:
+            await asyncio.sleep(30)
+            try:
+                heartbeat_data = {
+                    "service_name": "cnn_service_yolo",
+                    "status": "healthy" if self.model else "unhealthy",
+                    "camera_connected": self.camera is not None and self.camera.isOpened()
+                }
+                await self.hub_client.send_message("SendHeartbeat", json.dumps(heartbeat_data))
+            except Exception as e:
+                self.logger.error(f"Error sending heartbeat: {e}")
+
+    async def cleanup(self):
+        """Cleans up resources like the camera and hub connection."""
+        if self.camera:
+            self.camera.release()
+        await self.hub_client.disconnect()
+        self.logger.info("🧹 CNN service cleanup complete.")

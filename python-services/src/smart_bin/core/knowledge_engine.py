@@ -1,4 +1,6 @@
-from experta import KnowledgeEngine, Rule, P
+# python-services/src/smart_bin/core/knowledge_engine.py (Comprehensive Version)
+
+from experta import KnowledgeEngine, Rule, P, W, MATCH, AS
 from typing import List, Optional
 from ..models.waste_types import WasteClassification, WasteCategory
 from ..models.decisions import ClassificationDecision
@@ -6,140 +8,144 @@ from .facts import WasteFact
 from .resolver import DecisionResolver
 
 class SmartBinKnowledgeEngine(KnowledgeEngine):
-    """Knowledge engine for waste classification"""
+    """
+    Comprehensive knowledge engine for waste classification using YOLO and sensor fusion.
+    Rules are prioritized by salience from most certain to least certain.
+    """
     
     def __init__(self):
         super().__init__()
         self.candidates: List[WasteClassification] = []
         self.resolver = DecisionResolver()
-        self.manual_override: Optional[WasteClassification] = None
         self.reasoning_trace: List[str] = []
         
     def add_candidate(self, category: WasteCategory, confidence: float, 
                      reasoning: str, disposal_location: str) -> None:
-        """Add a candidate classification"""
-        
+        """Helper function to add a candidate classification."""
         classification = WasteClassification(
-            category=category,
-            confidence=confidence,
-            reasoning=reasoning,
-            disposal_location=disposal_location
+            category=category, confidence=confidence,
+            reasoning=reasoning, disposal_location=disposal_location
         )
-        
         self.candidates.append(classification)
-        self.reasoning_trace.append(f"→ Candidate Classification: {category.value.upper()}")
-        self.reasoning_trace.append(f"   Reason: {reasoning}")
-        self.reasoning_trace.append(f"   Proposed Disposal: {disposal_location}")
-        
-        print(f"\n→ Candidate Classification: {category.value.upper()}")
-        print(f"   Reason: {reasoning}")
-        print(f"   Proposed Disposal: {disposal_location}")
-        
+        self.reasoning_trace.append(f"-> RULE FIRED: {reasoning}")
+
     def get_final_decision(self) -> ClassificationDecision:
-        """Get the final classification decision"""
-        if self.manual_override:
-            final = self.manual_override
-            is_override = True
-        else:
-            final = self.resolver.resolve_candidates(self.candidates)
-            is_override = False
-            
+        """Resolves candidates to get the final decision."""
+        final_classification = self.resolver.resolve_candidates(self.candidates)
         return ClassificationDecision(
-            final_classification=final,
+            final_classification=final_classification,
             candidates=self.candidates.copy(),
-            reasoning_trace=self.reasoning_trace.copy(),
-            is_manual_override=is_override
+            reasoning_trace=self.reasoning_trace.copy()
         )
         
-    def set_manual_override(self, category: WasteCategory, disposal_location: str, 
-                          reasoning: str) -> None:
-        """Set manual override"""
-        self.manual_override = WasteClassification(
-            category=category,
-            confidence=1.0,
-            reasoning=f"User override: {reasoning}",
-            disposal_location=disposal_location
-        )
-        
-    def reset_classification(self) -> None:
-        """Reset for new classification"""
+    def reset(self) -> None:
+        """Resets the engine for a new classification run."""
         self.candidates.clear()
-        self.manual_override = None
         self.reasoning_trace.clear()
-        self.reset()
+        super().reset()
 
     # =========================================================================
-    # ================================ RULES ==================================
+    # PRIORITY 1: DEFINITIVE SENSOR RULES (Salience 100-110)
+    # These rules are the most reliable and should override almost everything else.
     # =========================================================================
     
-    @Rule(WasteFact(cv_label='battery', is_metal=True), salience=110)
-    def rule_battery_metal_combined(self):
-        reason = "CV detected battery and metal sensor triggered; classified as e-waste due to domain knowledge."
-        self.add_candidate(WasteCategory.EWASTE, 1.0, reason, "E-waste collection point")
+    @Rule(WasteFact(is_metal=True), salience=110)
+    def rule_definitive_metal(self):
+        reason = "Metal sensor triggered. This is the most reliable indicator for metal."
+        self.add_candidate(WasteCategory.METAL, 0.99, reason, "Metal Recycling Bin")
 
-    @Rule(WasteFact(cv_label='paint can', is_metal=True), salience=110)
-    def rule_hazardous_paint_can(self):
-        reason = "CV detected paint can and metal sensor triggered; hazardous waste prioritized."
-        self.add_candidate(WasteCategory.HAZARDOUS, 1.0, reason, "Hazardous waste disposal facility")
+    @Rule(WasteFact(is_moist=True), salience=100)
+    def rule_definitive_organic(self):
+        reason = "Moisture sensor indicates high humidity. This is a strong indicator of organic waste."
+        self.add_candidate(WasteCategory.ORGANIC, 0.98, reason, "Organic Waste / Compost Bin")
 
-    @Rule(WasteFact(cv_label='can', cv_confidence=P(lambda c: c >= 0.7)), salience=100)
-    def rule_can(self):
-        reason = "Computer vision confidently identified the item as 'can'. Metal detected by shape and texture."
-        self.add_candidate(WasteCategory.METAL, 0.9, reason, "Metal recycling bin")
+    # =========================================================================
+    # PRIORITY 2: HIGH-CONFIDENCE VISUAL RULES (Salience 90-99)
+    # These rules fire when YOLO is very certain about a non-ambiguous object.
+    # =========================================================================
 
-    @Rule(WasteFact(cv_label='banana peel', cv_confidence=P(lambda c: c >= 0.7)), salience=100)
-    def rule_banana_peel(self):
-        reason = "Computer vision confidently identified the item as 'banana peel'. Typical organic shape and color."
-        self.add_candidate(WasteCategory.ORGANIC, 0.9, reason, "Organic waste bin / Compost bin")
+    @Rule(WasteFact(cv_label=P(lambda x: x in ['banana', 'apple', 'orange', 'carrot', 'broccoli', 'hot dog', 'pizza', 'donut', 'cake'])),
+          salience=95)
+    def rule_obvious_food_item(self, cv_label):
+        reason = f"Visual detection confirmed a clear food item ('{cv_label}')."
+        self.add_candidate(WasteCategory.ORGANIC, 0.98, reason, "Organic Waste / Compost Bin")
 
-    @Rule(WasteFact(cv_label='apple core', cv_confidence=P(lambda c: c >= 0.7)), salience=100)
-    def rule_apple_core(self):
-        reason = "Computer vision confidently identified the item as 'apple core'. Typical organic shape and color."
-        self.add_candidate(WasteCategory.ORGANIC, 0.9, reason, "Organic waste bin / Compost bin")
+    @Rule(WasteFact(cv_label='book', cv_confidence=P(lambda c: c > 0.7)), salience=90)
+    def rule_book_as_paper(self):
+        reason = "High confidence visual detection of a 'book'."
+        self.add_candidate(WasteCategory.PAPER, 0.95, reason, "Paper Recycling Bin")
 
-    @Rule(WasteFact(cv_label='paper', cv_confidence=P(lambda c: c >= 0.7)), salience=100)
-    def rule_paper(self):
-        reason = "Computer vision confidently identified the item as 'paper'. Paper-like texture confirmed."
-        self.add_candidate(WasteCategory.PAPER, 0.85, reason, "Paper recycling bin")
+    @Rule(WasteFact(cv_label='scissors', cv_confidence=P(lambda c: c > 0.7)), salience=90)
+    def rule_scissors_as_metal(self):
+        reason = "High confidence visual detection of 'scissors', which are metal."
+        self.add_candidate(WasteCategory.METAL, 0.95, reason, "Metal Recycling Bin")
 
-    @Rule(WasteFact(cv_label='plastic bottle', cv_confidence=P(lambda c: c >= 0.7)), salience=100)
-    def rule_plastic_bottle(self):
-        reason = "Computer vision confidently identified the item as 'plastic bottle'. PET shape and transparency detected."
-        self.add_candidate(WasteCategory.PLASTIC_PET, 0.85, reason, "Plastic PET recycling bin")
+    # =========================================================================
+    # PRIORITY 3: SENSOR + VISION FUSION RULES (Salience 70-89)
+    # The core logic. These rules combine inputs for a robust decision.
+    # =========================================================================
 
-    @Rule(WasteFact(cv_label='glass bottle', cv_confidence=P(lambda c: c >= 0.7)), salience=100)
-    def rule_glass_bottle(self):
-        reason = "Computer vision confidently identified the item as 'glass bottle'. Glass texture and shape identified."
-        self.add_candidate(WasteCategory.GLASS, 0.9, reason, "Glass recycling bin")
+    @Rule(WasteFact(is_metal=False, is_transparent=True, cv_label='bottle', 
+                    weight_grams=P(lambda w: w > 100)), salience=85)
+    def rule_glass_bottle_heavy(self):
+        reason = "Fusion: Visually a 'bottle', sensors show it is not metal, transparent, and heavy (>100g). Strong evidence for Glass."
+        self.add_candidate(WasteCategory.GLASS, 0.95, reason, "Glass Recycling Bin")
 
-    @Rule(WasteFact(is_metal=True), salience=90)
-    def rule_metal_sensor(self):
-        reason = "Metal sensor triggered indicating metal presence."
-        self.add_candidate(WasteCategory.METAL, 0.95, reason, "Metal recycling bin")
+    @Rule(WasteFact(is_metal=False, cv_label='bottle', weight_grams=P(lambda w: w < 75)), salience=85)
+    def rule_plastic_bottle_light(self):
+        reason = "Fusion: Visually a 'bottle', sensors show it is not metal and lightweight (<75g). Strong evidence for Plastic."
+        self.add_candidate(WasteCategory.PLASTIC_PET, 0.95, reason, "Plastic (PET) Recycling Bin")
 
-    @Rule(WasteFact(is_moist=True), salience=80)
-    def rule_moisture_sensor(self):
-        reason = "Moisture detected; item is likely organic or wet paper."
-        self.add_candidate(WasteCategory.ORGANIC, 0.7, reason, "Organic waste bin / Compost bin")
+    @Rule(WasteFact(is_metal=False, is_transparent=True, cv_label='cup'), salience=80)
+    def rule_plastic_cup_transparent(self):
+        reason = "Fusion: Visually a 'cup', sensors confirm not metal and transparent. High probability of being a Plastic cup."
+        self.add_candidate(WasteCategory.PLASTIC_PET, 0.90, reason, "Plastic (PET) Recycling Bin")
 
-    @Rule(WasteFact(weight_grams=P(lambda w: w > 500)), salience=75)
-    def rule_heavy_item(self):
-        reason = "Item is heavy (>500g); may be bulk organic waste or metal."
-        self.add_candidate(WasteCategory.ORGANIC, 0.6, reason, "Organic waste bin / Compost bin")
+    @Rule(WasteFact(is_metal=False, is_transparent=False, cv_label='cup',
+                    weight_grams=P(lambda w: w < 50)), salience=80)
+    def rule_paper_cup_light(self):
+        reason = "Fusion: Visually a 'cup', sensors confirm not metal, not transparent, and lightweight. High probability of being a Paper cup."
+        self.add_candidate(WasteCategory.PAPER, 0.90, reason, "Paper Recycling Bin")
 
-    @Rule(WasteFact(is_transparent=True), salience=70)
-    def rule_transparency(self):
-        reason = "Item is transparent, often indicating PET plastic."
-        self.add_candidate(WasteCategory.PLASTIC_PET, 0.75, reason, "Plastic PET recycling bin")
+    @Rule(WasteFact(is_metal=False, cv_label='bowl', is_moist=False), salience=75)
+    def rule_non_organic_bowl(self):
+        reason = "Fusion: Visually a 'bowl' but sensors show it is not moist, ruling out organic. Could be plastic or paper."
+        self.add_candidate(WasteCategory.PLASTIC_PET, 0.75, reason, "Plastic (PET) Recycling Bin")
+        self.add_candidate(WasteCategory.PAPER, 0.75, reason, "Paper Recycling Bin")
+        
+    @Rule(WasteFact(is_metal=False, is_transparent=False, weight_grams=P(lambda w: w > 200)), salience=70)
+    def rule_heavy_non_metal_non_transparent(self):
+        reason = "Sensor-driven: Item is heavy but not metal or transparent. Could be dense organic or ceramic."
+        self.add_candidate(WasteCategory.ORGANIC, 0.7, reason, "Organic Waste / Compost Bin")
+        self.add_candidate(WasteCategory.UNKNOWN, 0.6, reason, "Manual Inspection Bin") # Ceramic is often not recyclable
 
-    @Rule(WasteFact(is_flexible=True), salience=65)
-    def rule_flexibility(self):
-        reason = "Flexible item detected, may be soft plastic or paper."
-        self.add_candidate(WasteCategory.PLASTIC_SOFT, 0.6, reason, "Special soft plastics recycling bin or trash")
+    # =========================================================================
+    # PRIORITY 4: EDUCATED GUESSES / FALLBACK RULES (Salience 1-69)
+    # These rules handle cases where the evidence is not definitive.
+    # =========================================================================
 
-    @Rule(WasteFact(), salience=10)
-    def fallback_rule(self):
+    @Rule(WasteFact(is_metal=False, cv_label='bottle'), salience=50)
+    def rule_ambiguous_bottle(self):
+        reason = "Fallback: Visually a 'bottle' and not metal, but weight is ambiguous. Could be Plastic or Glass."
+        self.add_candidate(WasteCategory.PLASTIC_PET, 0.7, reason, "Plastic (PET) Recycling Bin")
+        self.add_candidate(WasteCategory.GLASS, 0.7, reason, "Glass Recycling Bin")
+        
+    @Rule(WasteFact(is_metal=False, cv_label='cup'), salience=50)
+    def rule_ambiguous_cup(self):
+        reason = "Fallback: Visually a 'cup' and not metal, but other sensors are ambiguous. Could be Plastic or Paper."
+        self.add_candidate(WasteCategory.PLASTIC_PET, 0.7, reason, "Plastic (PET) Recycling Bin")
+        self.add_candidate(WasteCategory.PAPER, 0.7, reason, "Paper Recycling Bin")
+
+    # =========================================================================
+    # PRIORITY 5: FINAL FALLBACK (Salience -1)
+    # This rule only fires if no other rules have managed to add a candidate.
+    # =========================================================================
+
+    @Rule(salience=-1)
+    def rule_final_fallback_unknown(self):
         if not self.candidates:
-            self.add_candidate(WasteCategory.UNKNOWN, 0.3, "No clear indicators found.", "Manual sorting recommended")
-
-
+            # We also get the original yolo guess to add to the reasoning
+            fact = self.facts[1] # Facts are indexed from 1 in Experta
+            cv_guess = fact.get('cv_label', 'unknown')
+            reason = f"No specific rules matched the inputs. Visual system saw a '{cv_guess}'. Manual inspection required."
+            self.add_candidate(WasteCategory.UNKNOWN, 0.5, reason, "Manual Inspection Bin")
