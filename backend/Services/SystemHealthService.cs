@@ -14,19 +14,22 @@ namespace SmartRecyclingBin.Services
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
         private readonly IHubContext<SystemHealthHub> _healthHubContext;
+        private readonly ICpuUsageService _cpuUsageService;
 
         public SystemHealthService(
             ApplicationDbContext context,
             ILogger<SystemHealthService> logger,
             IHttpClientFactory httpClientFactory,
             IConfiguration configuration, 
-            IHubContext<SystemHealthHub> healthHubContext)
+            IHubContext<SystemHealthHub> healthHubContext, 
+            ICpuUsageService cpuUsageService)
         {
             _context = context;
             _logger = logger;
             _httpClient = httpClientFactory.CreateClient();
             _configuration = configuration;
             _healthHubContext = healthHubContext;
+            _cpuUsageService = cpuUsageService;
         }
 
         public async Task<SystemHealthMetrics> GetCurrentHealthAsync()
@@ -51,7 +54,7 @@ namespace SmartRecyclingBin.Services
 
                 // Calculate processing statistics
                 var recentClassifications = await _context.ClassificationResults
-                    .Where(c => c.Timestamp >= DateTime.UtcNow.AddHours(-1))
+                    .Where(c => c.Timestamp >= DateTime.UtcNow.AddHours(-24))
                     .ToListAsync();
 
                 metrics.TotalItemsProcessed = await _context.ClassificationResults.CountAsync();
@@ -61,15 +64,15 @@ namespace SmartRecyclingBin.Services
                     recentClassifications.Average(c => c.FinalConfidence) : 0;
 
                 // Classification counts
-                metrics.ClassificationCounts = await _context.ClassificationResults
-                    .Where(c => c.Timestamp >= DateTime.UtcNow.AddDays(-1))
+                metrics.ClassificationCounts = recentClassifications
                     .GroupBy(c => c.FinalClassification)
-                    .ToDictionaryAsync(g => g.Key, g => g.Count());
-
+                    .ToDictionary(g => g.Key, g => g.Count());
+                
                 // System metrics
                 var process = Process.GetCurrentProcess();
                 metrics.MemoryUsageMB = process.WorkingSet64 / 1024.0 / 1024.0;
                 metrics.SystemUptime = (DateTime.UtcNow - process.StartTime).TotalHours;
+                metrics.CpuUsagePercent = _cpuUsageService.GetCurrentCpuUsagePercentage();
 
                 await _healthHubContext.Clients.Group("HealthMonitor").SendAsync("HealthUpdate", metrics);
                 _logger.LogInformation("Broadcasted health update to SystemHealthHub.");

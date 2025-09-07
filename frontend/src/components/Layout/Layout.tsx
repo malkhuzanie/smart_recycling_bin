@@ -144,7 +144,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         alignItems: 'center', 
         borderBottom: '1px solid rgba(0,0,0,0.08)',
         background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
-        color: 'white'
+        color: 'white',
+        borderRadius: 0
       }}>
         <RecyclingOutlined sx={{ mr: 2, fontSize: 32 }} />
         <Box>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import useSignalR from './useSignalR';
-import apiService, { SystemStatus } from '../services/api';
+import apiService, { SystemStatus, SystemAlert } from '../services/api';
 
 interface SystemHealthMetrics {
   timestamp: string;
@@ -15,17 +15,6 @@ interface SystemHealthMetrics {
   systemUptime: number;
   memoryUsageMB: number;
   cpuUsagePercent: number;
-}
-
-interface SystemAlert {
-  id: number;
-  timestamp: string;
-  level: 'info' | 'warning' | 'error' | 'critical';
-  severity: 'info' | 'warning' | 'error' | 'critical';
-  source: string;
-  component: string;
-  message: string;
-  resolved: boolean;
 }
 
 interface UseSystemHealthReturn {
@@ -97,9 +86,7 @@ export const useSystemHealth = (): UseSystemHealthReturn => {
     isConnected,
     lastMessage,
     error: signalRError,
-    reconnect: signalRReconnect,
-    sendMessage,
-    joinGroup
+    reconnect: signalRReconnect
   } = useSignalR(
     `${process.env.REACT_APP_WS_URL}/hubs/systemhealth`,
     {
@@ -153,12 +140,12 @@ export const useSystemHealth = (): UseSystemHealthReturn => {
         const alert: SystemAlert = {
           id: parseInt(data.id) || Date.now(),
           timestamp: timestamp,
-          level: data.level || 'info',
+          // level: data.level || 'info',
           severity: data.level || 'info',
           source: data.source || 'system',
           component: data.source || 'system',
           message: data.message || 'System alert',
-          resolved: false,
+          isResolved: false,
         };
         
         setAlerts(prev => [alert, ...prev.slice(0, 19)]);
@@ -185,32 +172,12 @@ export const useSystemHealth = (): UseSystemHealthReturn => {
     setHealthError(null);
 
     try {
-      const systemHealth = await apiService.getSystemStatus();
-      setHealth(systemHealth);
-      
-      // Generate mock metrics (in real implementation, this would come from API)
-      const mockMetrics: SystemHealthMetrics = {
-        timestamp: new Date().toISOString(),
-        cameraConnected: systemHealth.cameraConnected,
-        arduinoConnected: systemHealth.arduinoConnected,
-        cnnServiceHealthy: systemHealth.cnnServiceHealthy,
-        expertSystemHealthy: systemHealth.expertSystemHealthy,
-        avgProcessingTimeMs: 125.5,
-        totalItemsProcessed: 1247,
-        accuracyRate: 0.94,
-        classificationCounts: {
-          plastic: 456,
-          metal: 234,
-          glass: 189,
-          paper: 298,
-          cardboard: 70,
-        },
-        systemUptime: 72.5,
-        memoryUsageMB: 512.3,
-        cpuUsagePercent: 23.7,
-      };
-      
-      setMetrics(mockMetrics);
+      const [systemStatus, activeAlerts] = await Promise.all([
+        apiService.getSystemStatus(),
+        apiService.getActiveAlerts()
+      ]);
+      setHealth(systemStatus); 
+      setAlerts(activeAlerts);
     } catch (error) {
       console.error('Failed to load system health:', error);
       setHealthError(error instanceof Error ? error.message : 'Failed to load system health');
@@ -293,12 +260,12 @@ export const useSystemHealth = (): UseSystemHealthReturn => {
       const sampleAlert: SystemAlert = {
         id: Date.now(),
         timestamp: new Date().toISOString(),
-        level: 'info',
+        // level: 'info',
         severity: 'info',
         source: 'system',
         component: 'system',
         message: 'System health monitoring active',
-        resolved: false,
+        isResolved: false,
       };
       
       setAlerts([sampleAlert]);

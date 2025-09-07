@@ -112,16 +112,16 @@ export const useDashboard = (): DashboardHook => {
       case 'dashboard_update':
         console.log('Dashboard update received:', data);
         // Handle different types of dashboard updates
-        if (data.Type === 'stats' && data.Data) {
-          setStats(data.Data);
-        } else if (data.Type === 'status' && data.Data) {
-          setHealth(data.Data);
-        } else if (data.Type === 'initial_status' && data.Data) {
-          if (data.Data.Stats) {
-            setStats(data.Data.Stats);
+        if (data.type === 'stats' && data.data) {
+          setStats(data.data);
+        } else if (data.type === 'status' && data.data) {
+          setHealth(data.data);
+        } else if (data.type === 'initial_status' && data.data) {
+          if (data.data.stats) {
+            setStats(data.data.stats);
           }
-          if (data.Data.HealthMetrics) {
-            setHealth(data.Data.HealthMetrics);
+          if (data.data.healthMetrics) {
+            setHealth(data.data.HealthMetrics);
           }
         }
         break;
@@ -180,23 +180,20 @@ export const useDashboard = (): DashboardHook => {
   }, [isConnected, sendMessage]);
 
   // Request stats from the hub
-  const requestStats = useCallback(async () => {
+  const requestStats = useCallback(async (fromDate: Date | null = null, toDate: Date | null = null) => {
     if (!isConnected) {
       console.warn('Cannot request stats: not connected');
       return;
     }
-
     try {
-      const success = await sendMessage('RequestStats');
+      const success = await sendMessage('RequestStats', fromDate, toDate);
       if (!success) {
-        console.warn('Failed to request stats via SignalR');
-        // Fallback to API
+        console.warn('Failed to request stats via SignalR, falling back to API');
         const stats = await apiService.getDashboardStats();
         setStats(stats);
       }
     } catch (error) {
       console.error('Error requesting stats:', error);
-      // Fallback to API
       try {
         const stats = await apiService.getDashboardStats();
         setStats(stats);

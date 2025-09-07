@@ -12,17 +12,20 @@ namespace SmartRecyclingBin.Services
         private readonly IHubContext<ClassificationHub> _classificationHub;
         private readonly IHubContext<DashboardHub> _dashboardHub;
         private readonly ILogger<OverrideService> _logger;
+        private readonly IClassificationService _classificationService;
 
         public OverrideService(
             ApplicationDbContext context,
             IHubContext<ClassificationHub> classificationHub,
             IHubContext<DashboardHub> dashboardHub,
-            ILogger<OverrideService> logger)
+            ILogger<OverrideService> logger, 
+            IClassificationService classificationService)
         {
             _context = context;
             _classificationHub = classificationHub;
             _dashboardHub = dashboardHub;
             _logger = logger;
+            _classificationService = classificationService;
         }
 
         public async Task<bool> ApplyManualOverrideAsync(ManualOverrideRequest request)
@@ -45,8 +48,15 @@ namespace SmartRecyclingBin.Services
                 classification.OverrideClassification = request.NewClassification;
                 classification.DisposalLocation = request.NewDisposalLocation;
                 classification.OverrideTimestamp = DateTime.UtcNow;
+                
+                classification.FinalClassification = request.NewClassification;
+                classification.DisposalLocation = request.NewDisposalLocation;
+                classification.FinalConfidence = 1.0;
 
                 await _context.SaveChangesAsync();
+                
+                var updatedClassification = await _classificationService
+                    .GetClassificationAsync(request.ClassificationId);
 
                 // Notify connected clients about the override
                 var overrideNotification = new
@@ -56,7 +66,8 @@ namespace SmartRecyclingBin.Services
                     NewDisposalLocation = request.NewDisposalLocation,
                     Reason = request.Reason,
                     OverriddenBy = request.UserId,
-                    Timestamp = DateTime.UtcNow
+                    Timestamp = DateTime.UtcNow,
+                    UpdatedClassification = updatedClassification
                 };
 
                 await _classificationHub.Clients.All.SendAsync("ClassificationOverridden", overrideNotification);

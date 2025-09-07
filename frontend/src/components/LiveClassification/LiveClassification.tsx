@@ -33,6 +33,7 @@ import {
   Badge,
   Skeleton,
   CardActions,
+  Collapse
 } from '@mui/material';
 import {
   Camera,
@@ -56,6 +57,20 @@ import {
 import { useLiveClassification } from '../../hooks/useLiveClassification';
 import apiService, { ClassificationResult } from '../../services/api';
 
+const DISPOSAL_LOCATIONS: { [key: string]: string } = {
+  metal: 'Metal recycling bin',
+  plastic: 'Plastic recycling bin',
+  glass: 'Glass recycling bin',
+  paper: 'Paper recycling bin',
+  cardboard: 'Cardboard/Paper recycling bin',
+  PET_bottle: 'Plastic PET recycling bin',
+  plastic_bag: 'Special soft plastics recycling or trash',
+  container: 'Plastic recycling bin',
+  food_packaging: 'Manual Inspection Bin',
+  // Add other types as needed
+};
+
+
 interface OverrideDialogProps {
   open: boolean;
   classification: ClassificationResult | null;
@@ -72,24 +87,37 @@ const OverrideDialog: React.FC<OverrideDialogProps> = ({
   const [newClassification, setNewClassification] = useState('');
   const [reason, setReason] = useState('');
 
+  const [predictedLocation, setPredictedLocation] = useState<string | null>(null);
+
   const wasteTypes = [
     'metal', 'plastic', 'glass', 'paper', 'cardboard',
     'PET_bottle', 'plastic_bag', 'container', 'food_packaging'
   ];
 
+  useEffect(() => {
+    if (open && newClassification) {
+      const location = DISPOSAL_LOCATIONS[newClassification] || 'Manual Inspection Bin';
+      setPredictedLocation(location);
+    } else {
+      setPredictedLocation(null);
+    }
+  }, [newClassification, open]);
+
   const handleConfirm = () => {
     if (newClassification && reason) {
-      onConfirm({
-        classificationId: classification?.id,
-        newClassification,
-        reason,
-        userId: 'operator' // In real app, get from auth
-      });
-      setNewClassification('');
-      setReason('');
-      onClose();
+      onConfirm({ newClassification, reason });
+      handleClose()
     }
   };
+
+  const handleClose = () => {
+    onClose();
+    // Reset local state when the dialog is closed
+    setNewClassification('');
+    setReason('');
+    setPredictedLocation(null);
+  };
+  
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -122,6 +150,26 @@ const OverrideDialog: React.FC<OverrideDialogProps> = ({
             </Select>
           </FormControl>
 
+          <Collapse in={!!predictedLocation}>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                p: 1.5,
+                borderRadius: 1, // Matches MUI's standard border radius
+                bgcolor: 'info.lighter', // A very light, unobtrusive background color
+                color: 'info.darker', // Ensure text is readable
+                mt: -1, // Pull it slightly closer to the dropdown above
+              }}
+            >
+              <InfoOutlined sx={{ fontSize: '1.2rem' }} />
+              <Typography variant="body2">
+                Disposal location will be updated to: <strong>{predictedLocation}</strong>
+              </Typography>
+            </Box>
+          </Collapse>
+
           <TextField
             fullWidth
             label="Reason for Override"
@@ -151,7 +199,6 @@ const OverrideDialog: React.FC<OverrideDialogProps> = ({
   );
 };
 
-// 🖼️ IMAGE ZOOM DIALOG
 interface ImageZoomDialogProps {
   open: boolean;
   classification: ClassificationResult | null;
@@ -235,9 +282,18 @@ const LiveClassification: React.FC = () => {
     clearError,
   } = useLiveClassification();
 
-  const handleOverride = async (overrideData: any) => {
+  const handleOverride = async (overrideDataFromDialog: { classificationId: number; newClassification: string; reason: string; userId: string; }) => {
     try {
-      const success = await overrideClassification(overrideData);
+      const newDisposalLocation = DISPOSAL_LOCATIONS[overrideDataFromDialog.newClassification] || 'Manual Inspection Bin';
+
+      const fullOverrideRequest = {
+        ...overrideDataFromDialog,
+        newDisposalLocation: newDisposalLocation,
+      };
+
+      console.log('Sending full override request:', fullOverrideRequest);
+      const success = await overrideClassification(fullOverrideRequest);
+      
       if (!success) {
         console.error('Override failed');
       }
@@ -656,7 +712,16 @@ const LiveClassification: React.FC = () => {
           setOverrideDialogOpen(false);
           setSelectedClassification(null);
         }}
-        onConfirm={handleOverride}
+        onConfirm={(data) => {
+          if (selectedClassification) {
+            handleOverride({
+              classificationId: selectedClassification.id,
+              newClassification: data.newClassification,
+              reason: data.reason,
+              userId: 'operator_ui', 
+            });
+          }
+        }}
       />
 
       <ImageZoomDialog

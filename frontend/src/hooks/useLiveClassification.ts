@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import useSignalR from './useSignalR';
-import apiService, { ClassificationResult, SystemStatus } from '../services/api';
+import apiService, { ClassificationResult, SystemStatus, ManualOverrideRequest } from '../services/api';
 
 // Types for live classification
 interface LiveClassificationState {
@@ -39,16 +39,24 @@ export const useLiveClassification = (): LiveClassificationState & LiveClassific
   const [previousClassifications, setPreviousClassifications] = useState<ClassificationResult[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
+    timestamp: "",
     isConnected: false,
     lastUpdate: new Date().toISOString(),
     cameraConnected: false,
     cnnServiceHealthy: false,
     arduinoConnected: false,
     expertSystemHealthy: false,
+    avgProcessingTimeMs: 0,
+    totalItemsProcessed: 0,
+    accuracyRate: 0,
+    classificationCounts: {},
     itemsInQueue: 0,
     isProcessing: false,
     imageStorageEnabled: false,
     additionalInfo: {},
+    systemUptime: 0,
+    memoryUsageMB: 0,
+    cpuUsagePercent: 0
   });
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
@@ -269,27 +277,17 @@ export const useLiveClassification = (): LiveClassificationState & LiveClassific
   }, [lastMessage, currentClassification]);
 
   // Actions
-  const overrideClassification = useCallback(async (overrideData: ClassificationOverrideData): Promise<boolean> => {
-    if (!signalRConnected) {
-      console.warn('Cannot override classification: not connected');
-      setError('Not connected to classification service');
-      return false;
-    }
-
+  const overrideClassification = useCallback(async (overrideData: ManualOverrideRequest): Promise<boolean> => {
     try {
-      const success = await sendMessage('ApplyManualOverride', JSON.stringify(overrideData));
-      if (!success) {
-        setError('Failed to apply override');
-        return false;
-      }
-      
+      await apiService.overrideClassification(overrideData);
+      console.log('Override request sent successfully. Waiting for broadcast update.');
       return true;
     } catch (error) {
-      console.error('Error applying override:', error);
-      setError('Failed to apply classification override');
+      console.error('Error in overrideClassification hook:', error);
+      setError('Failed to apply classification override.');
       return false;
     }
-  }, [signalRConnected, sendMessage]);
+  }, []);
 
   const approveClassification = useCallback(async (classificationId: number): Promise<boolean> => {
     if (!signalRConnected) {

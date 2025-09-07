@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using SmartRecyclingBin.Data;
 using SmartRecyclingBin.Models;
 using SmartRecyclingBin.Services;
 
@@ -13,15 +14,21 @@ namespace SmartRecyclingBin.Controllers
         private readonly ISystemHealthService _healthService;
         private readonly INotificationService _notificationService;
         private readonly ILogger<SystemController> _logger;
+        private readonly IWebHostEnvironment _env; 
+        private readonly ApplicationDbContext _context;
 
         public SystemController(
             ISystemHealthService healthService,
             INotificationService notificationService,
-            ILogger<SystemController> logger)
+            ILogger<SystemController> logger, 
+            IWebHostEnvironment env, 
+            ApplicationDbContext context)
         {
             _healthService = healthService;
             _notificationService = notificationService;
             _logger = logger;
+            _env = env;
+            _context = context;
         }
 
         /// <summary>
@@ -126,7 +133,7 @@ namespace SmartRecyclingBin.Controllers
 
                 await _notificationService.AddAlert(alert);
                 _logger.LogInformation("New alert created: {Severity} - {Message}", request.Severity, request.Message);
-                
+
                 return CreatedAtAction(nameof(GetActiveAlerts), new { id = alert.Id }, alert);
             }
             catch (Exception ex)
@@ -146,7 +153,7 @@ namespace SmartRecyclingBin.Controllers
             try
             {
                 var from = fromDate ?? DateTime.UtcNow.AddHours(-24);
-                
+
                 var metrics = new Dictionary<string, object>
                 {
                     ["timestamp"] = DateTime.UtcNow,
@@ -173,18 +180,24 @@ namespace SmartRecyclingBin.Controllers
         /// Get system status summary
         /// </summary>
         [HttpGet("status")]
-public async Task<ActionResult<object>> GetSystemStatus()
+        public async Task<ActionResult<object>> GetSystemStatus()
         {
             try
             {
                 var health = await _healthService.GetCurrentHealthAsync();
                 var activeAlerts = await _healthService.GetActiveAlertsAsync();
-                
+
                 var status = new
                 {
                     timestamp = DateTime.UtcNow,
-                    overallHealthy = health.CnnServiceHealthy && health.ExpertSystemHealthy && 
-                                    health.CameraConnected && health.ArduinoConnected,
+                    overallHealthy = health is
+                    {
+                        CnnServiceHealthy: true, 
+                        ExpertSystemHealthy: true, 
+                        CameraConnected: true, 
+                        ArduinoConnected: true
+                    },
+                    
                     components = new
                     {
                         cnnServiceHealthy = health.CnnServiceHealthy,
@@ -198,6 +211,7 @@ public async Task<ActionResult<object>> GetSystemStatus()
                         totalItemsProcessed = health.TotalItemsProcessed,
                         accuracyRate = health.AccuracyRate,
                         systemUptimeHours = health.SystemUptime,
+                        cpuUsagePercent = health.CpuUsagePercent,
                         memoryUsageMb = health.MemoryUsageMB
                     },
                     alerts = new
@@ -206,6 +220,13 @@ public async Task<ActionResult<object>> GetSystemStatus()
                         critical = activeAlerts.Count(a => a.Severity == "CRITICAL"),
                         warning = activeAlerts.Count(a => a.Severity == "WARNING"),
                         info = activeAlerts.Count(a => a.Severity == "INFO")
+                    },
+                    additionalInfo = new 
+                    {
+                        environment = _env.EnvironmentName,
+                        dotnetVersion = Environment.Version.ToString(),
+                        machineName = Environment.MachineName,
+                        databaseProvider = _context.Database.ProviderName
                     }
                 };
 
@@ -217,16 +238,16 @@ public async Task<ActionResult<object>> GetSystemStatus()
                 return StatusCode(500, new { error = "Internal server error", details = ex.Message });
             }
         }
-        
+
         /// <summary>
         /// Test endpoint to verify API connectivity
         /// </summary>
         [HttpGet("ping")]
         public ActionResult<object> Ping()
         {
-            return Ok(new 
-            { 
-                message = "System API is responding", 
+            return Ok(new
+            {
+                message = "System API is responding",
                 timestamp = DateTime.UtcNow,
                 version = "1.0.0"
             });
@@ -240,13 +261,10 @@ public async Task<ActionResult<object>> GetSystemStatus()
 
     public class CreateAlertRequest
     {
-        [Required]
-        public string Severity { get; set; } = string.Empty; // INFO, WARNING, ERROR, CRITICAL
-        
-        [Required]
-        public string Component { get; set; } = string.Empty;
-        
-        [Required]
-        public string Message { get; set; } = string.Empty;
+        [Required] public string Severity { get; set; } = string.Empty; // INFO, WARNING, ERROR, CRITICAL
+
+        [Required] public string Component { get; set; } = string.Empty;
+
+        [Required] public string Message { get; set; } = string.Empty;
     }
 }

@@ -83,7 +83,6 @@ namespace SmartRecyclingBin.Hubs
             try
             {
                 var healthMetrics = await _healthService.GetCurrentHealthAsync();
-                _logger.LogError($"LSTATS = {healthMetrics.CnnServiceHealthy.ToString()}");
                 var statusUpdate = new
                 {
                     Type = "status",

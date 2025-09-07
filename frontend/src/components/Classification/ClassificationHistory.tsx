@@ -26,6 +26,7 @@ import {
   LinearProgress,
   Alert,
   Tooltip,
+  Stack
 } from '@mui/material';
 import {
   Visibility,
@@ -33,6 +34,7 @@ import {
   FilterList,
   Search,
   Refresh,
+  CompareArrows,
   Close as CloseIcon,
 } from '@mui/icons-material';
 import { useClassificationHistory } from '../../hooks/useClassificationHistory';
@@ -312,7 +314,9 @@ const ClassificationHistory: React.FC = () => {
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600 }}>Date & Time</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Item ID</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Original Prediction (ES)</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Classification</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Disposal Location</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Confidence</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Processing Time</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
@@ -332,11 +336,34 @@ const ClassificationHistory: React.FC = () => {
                         #{classification.detectionId || classification.id}
                       </Typography>
                     </TableCell>
+
                     <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {classification.finalClassification}
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Typography variant="body2">{classification.cnnPredictedClass}</Typography>
+                        <Chip
+                          label={`${(classification.cnnConfidence * 100).toFixed(1)}%`}
+                          color={getConfidenceColor(classification.cnnConfidence)}
+                          size="small"
+                          variant="outlined"
+                        />
+                      </Stack>
+                    </TableCell>
+
+                    <TableCell>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {classification.finalClassification}
+                        </Typography>
+                      </Stack>
+                    </TableCell>
+
+
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {classification.disposalLocation}
                       </Typography>
                     </TableCell>
+
                     <TableCell>
                       <Chip
                         label={formatConfidence(classification.finalConfidence)}
@@ -345,6 +372,7 @@ const ClassificationHistory: React.FC = () => {
                         variant="outlined"
                       />
                     </TableCell>
+
                     <TableCell>
                       <Typography variant="body2">
                         {classification.processingTimeMs?.toFixed(0) || '0'}ms
@@ -365,6 +393,7 @@ const ClassificationHistory: React.FC = () => {
                         />
                       )}
                     </TableCell>
+
                     <TableCell>
                       <Tooltip title="View Details">
                         <IconButton

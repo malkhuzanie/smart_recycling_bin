@@ -100,7 +100,7 @@ namespace SmartRecyclingBin.Services
         }
 
         /// <summary>
-        /// 🖼️ Process image data from Python service
+        /// Process image data from Python service
         /// </summary>
         private async Task ProcessImageData(ClassificationResult result, JsonElement imageData)
         {
@@ -216,7 +216,7 @@ namespace SmartRecyclingBin.Services
         }
 
         /// <summary>
-        /// 🖼️ Get classification with full image data
+        /// Get classification with full image data
         /// </summary>
         public async Task<ClassificationResult?> GetClassificationWithImageAsync(int id)
         {
@@ -225,7 +225,7 @@ namespace SmartRecyclingBin.Services
         }
 
         /// <summary>
-        /// 🖼️ Get classification image only (Base64 string)
+        /// Get classification image only (Base64 string)
         /// </summary>
         public async Task<string?> GetClassificationImageAsync(int id)
         {
@@ -328,7 +328,7 @@ namespace SmartRecyclingBin.Services
         }
 
         /// <summary>
-        /// 🖼️ Get image storage statistics
+        /// Get image storage statistics
         /// </summary>
         public async Task<ImageStorageStats> GetImageStorageStatsAsync()
         {
@@ -351,22 +351,24 @@ namespace SmartRecyclingBin.Services
             return element.TryGetProperty(propertyName, out var prop) && prop.TryGetInt32(out var value) ? value : 0;
         }
 
-        // 🔧 FIXED: Corrected boolean property handling for JsonElement
+        // Corrected boolean property handling for JsonElement
         private static bool GetBoolProperty(JsonElement element, string propertyName)
         {
             if (element.TryGetProperty(propertyName, out var prop))
             {
-                if (prop.ValueKind == JsonValueKind.True) return true;
-                if (prop.ValueKind == JsonValueKind.False) return false;
-                if (prop.ValueKind == JsonValueKind.String)
+                switch (prop.ValueKind)
                 {
-                    var stringValue = prop.GetString()?.ToLowerInvariant();
-                    return stringValue == "true" || stringValue == "1";
-                }
-
-                if (prop.ValueKind == JsonValueKind.Number)
-                {
-                    return prop.GetInt32() != 0;
+                    case JsonValueKind.True:
+                        return true;
+                    case JsonValueKind.False:
+                        return false;
+                    case JsonValueKind.String:
+                    {
+                        string? stringValue = prop.GetString()?.ToLowerInvariant();
+                        return stringValue is "true" or "1";
+                    }
+                    case JsonValueKind.Number:
+                        return prop.GetInt32() != 0;
                 }
             }
 

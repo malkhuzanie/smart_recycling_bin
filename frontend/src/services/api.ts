@@ -1,6 +1,31 @@
 // frontend/src/services/api.ts 
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 
+export interface SystemAlert {
+  id: number;
+  timestamp: string;
+  severity: 'info' | 'warning' | 'error' | 'critical';
+  source: string;
+  component: string;
+  message: string;
+  isResolved: boolean;
+}
+
+interface ManualOverrideRequest {
+  classificationId: number;
+  newClassification: string;
+  newDisposalLocation: string;
+  reason: string;
+  userId: string;
+}
+
+interface OverrideRequest {
+  classificationId: number;
+  newClassification: string;
+  reason: string;
+  userId: string;
+}
+
 interface ClassificationResult {
   id: number;
   detectionId: string;
@@ -10,21 +35,21 @@ interface ClassificationResult {
   disposalLocation: string;
   reasoning: string;
   processingTimeMs: number;
-  
+
   imageBase64?: string;
   hasImage: boolean;
   imageCaptureTimestamp?: string;
   imageFormat?: string;
   imageDimensions?: string;
   imageSizeBytes?: number;
-  
+
   isOverridden: boolean;
-  
+
   // CNN data
   cnnPredictedClass: string;
   cnnConfidence: number;
   cnnStage: number;
-  
+
   // Enhanced fields for Live Classification
   cnnStages?: {
     stage1Result?: {
@@ -37,7 +62,7 @@ interface ClassificationResult {
     };
     totalConfidence: number;
   };
-  
+
   sensorData?: {
     weightGrams: number;
     isMetalDetected: boolean;
@@ -47,11 +72,11 @@ interface ClassificationResult {
     isTransparent: boolean;
     isFlexible: boolean;
   };
-  
+
   validationResults?: {
     [key: string]: string;
   };
-  
+
   // Processing info
   processingPipeline?: string[];
   metadata?: {
@@ -69,7 +94,7 @@ interface DashboardStats {
   hourlyThroughput: { [key: string]: number };
   systemStatus: SystemStatus;
   recentAlerts: string[];
-  
+
   // IMAGE STATISTICS
   imagesStoredToday?: number;
   totalImageStorageSize?: number;
@@ -77,23 +102,24 @@ interface DashboardStats {
 }
 
 interface SystemStatus {
+  timestamp: string;
   isConnected: boolean;
   lastUpdate: string;
   cameraConnected: boolean;
   cnnServiceHealthy: boolean;
   arduinoConnected: boolean;
   expertSystemHealthy: boolean;
+  avgProcessingTimeMs: number;
+  accuracyRate: number;
+  totalItemsProcessed: number;
+  classificationCounts: { [key: string]: number };
   itemsInQueue: number;
   isProcessing: boolean;
   imageStorageEnabled: boolean;
   additionalInfo: { [key: string]: any };
-}
-
-interface OverrideRequest {
-  classificationId: number;
-  newClassification: string;
-  reason: string;
-  userId: string;
+  systemUptime: number;
+  memoryUsageMB: number;
+  cpuUsagePercent: number; 
 }
 
 interface SearchCriteria {
@@ -134,6 +160,33 @@ interface ImageStorageStats {
   totalStorageSizeMB: number;
   averageImageSizeMB: number;
 }
+
+interface SystemStatusApiResponse {
+  timestamp: string;
+  overallHealthy: boolean;
+  components: {
+    cnnServiceHealthy: boolean;
+    expertSystemHealthy: boolean;
+    cameraConnected: boolean;
+    arduinoConnected: boolean;
+  };
+  metrics: {
+    avgProcessingTimeMs: number;
+    totalItemsProcessed: number;
+    accuracyRate: number;
+    systemUptimeHours: number;
+    memoryUsageMb: number;
+    classificationCounts: { [key: string]: number };
+  };
+  alerts: {
+    totalActive: number;
+    critical: number;
+    warning: number;
+    info: number;
+  };
+  additionalInfo: { [key: string]: any };
+}
+
 
 class APIService {
   private api: AxiosInstance;
@@ -200,7 +253,7 @@ class APIService {
   // IMAGE SPECIFIC METHODS
   async getClassificationImage(id: number): Promise<string | null> {
     try {
-      const response = await this.api.get<{imageBase64: string}>(`/api/classification/${id}/image`);
+      const response = await this.api.get<{ imageBase64: string }>(`/api/classification/${id}/image`);
       return response.data.imageBase64 || null;
     } catch (error) {
       console.error(`Failed to fetch image for classification ${id}:`, error);
@@ -221,7 +274,7 @@ class APIService {
       const blob = new Blob([response.data]);
       const link = document.createElement('a');
       link.href = window.URL.createObjectURL(blob);
-      
+
       // Extract filename from Content-Disposition header or create default
       const contentDisposition = response.headers['content-disposition'];
       let filename = `classification_${id}_image.jpg`;
@@ -231,7 +284,7 @@ class APIService {
           filename = filenameMatch[1];
         }
       }
-      
+
       link.download = filename;
       document.body.appendChild(link);
       link.click();
@@ -253,9 +306,9 @@ class APIService {
     }
   }
 
-  async cleanupOldImages(olderThanDays: number = 30, dryRun: boolean = true): Promise<{message: string}> {
+  async cleanupOldImages(olderThanDays: number = 30, dryRun: boolean = true): Promise<{ message: string }> {
     try {
-      const response = await this.api.post<{message: string}>(
+      const response = await this.api.post<{ message: string }>(
         '/api/classification/images/cleanup',
         null,
         { params: { olderThanDays, dryRun } }
@@ -282,15 +335,30 @@ class APIService {
   }
 
   // Override Management
-  async overrideClassification(request: OverrideRequest): Promise<ClassificationResult> {
+  // async overrideClassification(request: OverrideRequest): Promise<ClassificationResult> {
+  //   try {
+  //     const response = await this.api.post<ClassificationResult>(
+  //       '/api/classification/override',
+  //       request
+  //     );
+  //     return response.data;
+  //   } catch (error) {
+  //     console.error('Failed to override classification:', error);
+  //     throw error;
+  //   }
+  // }
+
+
+  async overrideClassification(request: ManualOverrideRequest): Promise<ClassificationResult> {
     try {
+      // The backend returns the updated classification object on success.
       const response = await this.api.post<ClassificationResult>(
         '/api/classification/override',
         request
       );
       return response.data;
     } catch (error) {
-      console.error('Failed to override classification:', error);
+      console.error('Failed to override classification via API:', error);
       throw error;
     }
   }
@@ -312,7 +380,7 @@ class APIService {
 
   async getClassificationWithImage(id: number): Promise<ClassificationResult | null> {
     try {
-      const response: AxiosResponse<ClassificationResult> = 
+      const response: AxiosResponse<ClassificationResult> =
         await this.api.get(`/api/classification/${id}/with-image`);
       return response.data;
     } catch (error: any) {
@@ -326,65 +394,8 @@ class APIService {
   // Dashboard and Statistics
   async getDashboardStats(): Promise<DashboardStats> {
     try {
-      // Fetch multiple endpoints to compile dashboard stats
-      const [classifications, systemStatus, imageStats] = await Promise.all([
-        this.getClassifications({ limit: 100 }),
-        this.getSystemStatus(),
-        this.getImageStorageStats()
-      ]);
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const thisWeekStart = new Date();
-      thisWeekStart.setDate(thisWeekStart.getDate() - 7);
-      thisWeekStart.setHours(0, 0, 0, 0);
-
-      const todayItems = classifications.items.filter(
-        item => new Date(item.timestamp) >= today
-      );
-      
-      const weekItems = classifications.items.filter(
-        item => new Date(item.timestamp) >= thisWeekStart
-      );
-
-      const overriddenItems = classifications.items.filter(item => item.isOverridden);
-
-      // Classification breakdown
-      const classificationBreakdown: { [key: string]: number } = {};
-      classifications.items.forEach(item => {
-        classificationBreakdown[item.finalClassification] = 
-          (classificationBreakdown[item.finalClassification] || 0) + 1;
-      });
-
-      // Hourly throughput (simplified)
-      const hourlyThroughput: { [key: string]: number } = {};
-      for (let hour = 0; hour < 24; hour++) {
-        hourlyThroughput[`${hour}:00`] = Math.floor(Math.random() * 10); // Mock data
-      }
-
-      return {
-        itemsToday: todayItems.length,
-        itemsThisWeek: weekItems.length,
-        overrideRate: classifications.items.length > 0 
-          ? (overriddenItems.length / classifications.items.length) * 100 
-          : 0,
-        averageConfidence: classifications.items.length > 0
-          ? classifications.items.reduce((sum, item) => sum + item.finalConfidence, 0) / classifications.items.length
-          : 0,
-        averageProcessingTime: classifications.items.length > 0
-          ? classifications.items.reduce((sum, item) => sum + item.processingTimeMs, 0) / classifications.items.length
-          : 0,
-        classificationBreakdown,
-        hourlyThroughput,
-        systemStatus,
-        recentAlerts: [], // Would be fetched from alerts endpoint
-        
-        // IMAGE STATISTICS
-        imagesStoredToday: todayItems.filter(item => item.hasImage).length,
-        totalImageStorageSize: imageStats.totalStorageSizeMB,
-        averageImageSize: imageStats.averageImageSizeMB
-      };
+      const response = await this.api.get<DashboardStats>('/api/dashboard/stats');
+      return response.data;
     } catch (error) {
       console.error('Failed to fetch dashboard stats:', error);
       throw error;
@@ -393,25 +404,35 @@ class APIService {
 
   async getSystemStatus(): Promise<SystemStatus> {
     try {
-      // Mock system status - in real implementation, this would be a dedicated endpoint
-      return {
-        isConnected: true,
-        lastUpdate: new Date().toISOString(),
-        cameraConnected: Math.random() > 0.1, // 90% chance connected
-        cnnServiceHealthy: Math.random() > 0.05, // 95% chance healthy
-        arduinoConnected: Math.random() > 0.15, // 85% chance connected
-        expertSystemHealthy: Math.random() > 0.1, // 90% chance healthy
-        itemsInQueue: Math.floor(Math.random() * 5),
-        isProcessing: Math.random() > 0.7, // 30% chance processing
-        imageStorageEnabled: true,
-        additionalInfo: {
-          version: '1.0.0',
-          uptime: '2d 14h 32m'
-        }
+      const response = await this.api.get<SystemStatusApiResponse>('/api/system/status');
+      const apiData = response.data;
+
+      const mappedData: SystemStatus = {
+        timestamp: apiData.timestamp,
+        lastUpdate: apiData.timestamp,
+        cameraConnected: apiData.components.cameraConnected,
+        arduinoConnected: apiData.components.arduinoConnected,
+        cnnServiceHealthy: apiData.components.cnnServiceHealthy,
+        expertSystemHealthy: apiData.components.expertSystemHealthy,
+        avgProcessingTimeMs: apiData.metrics.avgProcessingTimeMs,
+        totalItemsProcessed: apiData.metrics.totalItemsProcessed,
+        accuracyRate: apiData.metrics.accuracyRate,
+        classificationCounts: apiData.metrics.classificationCounts || {},
+        systemUptime: apiData.metrics.systemUptimeHours,
+        memoryUsageMB: apiData.metrics.memoryUsageMb,
+        cpuUsagePercent: 0, // Not provided by this endpoint, default to 0
+
+        isConnected: true, // If this call succeeded, the connection is good.
+        itemsInQueue: 0, // This is real-time state, will be updated by SignalR.
+        isProcessing: false, // Also real-time state.
+        imageStorageEnabled: true, // Assume enabled.
+        additionalInfo: apiData.additionalInfo
       };
+
+      return mappedData;
     } catch (error) {
-      console.error('Failed to fetch system status:', error);
-      throw error;
+      console.error('Failed to fetch and map system status:', error);
+      throw new Error('Failed to fetch system status');
     }
   }
 
@@ -439,7 +460,7 @@ class APIService {
     if (!this.isImageAvailable(classification)) {
       return null;
     }
-    
+
     const format = classification.imageFormat || 'jpeg';
     return `data:image/${format};base64,${classification.imageBase64}`;
   }
@@ -447,7 +468,7 @@ class APIService {
   // Utility method to format image size
   formatImageSize(sizeBytes?: number): string {
     if (!sizeBytes) return 'Unknown';
-    
+
     if (sizeBytes < 1024) return `${sizeBytes} B`;
     if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
     return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -461,6 +482,16 @@ class APIService {
     } catch (error) {
       console.error('Health check failed:', error);
       return false;
+    }
+  }
+
+  async getActiveAlerts(): Promise<SystemAlert[]> {
+    try {
+      const response = await this.api.get<SystemAlert[]>('/api/system/alerts');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch active alerts:', error);
+      throw new Error('Failed to fetch active alerts');
     }
   }
 
@@ -487,8 +518,9 @@ export type {
   ClassificationResult,
   DashboardStats,
   SystemStatus,
-  OverrideRequest,
+  // OverrideRequest,
+  ManualOverrideRequest,
   SearchCriteria,
   PagedResult,
-  ImageStorageStats
+  ImageStorageStats,
 };

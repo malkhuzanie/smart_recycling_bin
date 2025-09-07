@@ -107,7 +107,6 @@ export interface DashboardUpdate {
   };
 }
 
-// System statistics types - Using ACTUAL backend model names
 export interface SystemStats {
   totalItems: number;
   accuracyRate: number;

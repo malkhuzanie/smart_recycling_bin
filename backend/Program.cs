@@ -108,6 +108,8 @@ builder.Services.AddScoped<IOverrideService, OverrideService>();
 builder.Services.AddScoped<ISystemHealthService, SystemHealthService>();
 builder.Services.AddSingleton<INotificationService, NotificationService>();
 builder.Services.AddScoped<ILogService, LogService>();
+builder.Services.AddSingleton<ICpuUsageService, CpuUsageService>();
+
 
 // Add HTTP client for external service calls
 builder.Services.AddHttpClient("PythonServices", client => { client.Timeout = TimeSpan.FromSeconds(10); });

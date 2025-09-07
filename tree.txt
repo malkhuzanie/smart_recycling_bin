@@ -5,15 +5,30 @@
 │   ├── Controllers
 │   │   ├── ClassificationController.cs
 │   │   ├── DashboardController.cs
+│   │   ├── LogController.cs
 │   │   └── SystemController.cs
 │   ├── Data
 │   │   └── ApplicationDbContext.cs
+│   ├── Extensions
+│   │   └── ClassificationMappingExtensions.cs
 │   ├── Hubs
 │   │   ├── ClassificationHub.cs
-│   │   └── DashboardHub.cs
+│   │   ├── DashboardHub.cs
+│   │   ├── LogHub.cs
+│   │   └── SystemHealthHub.cs
+│   ├── Logging
+│   │   ├── SignalRLogger.cs
+│   │   ├── SignalRLoggerExtensions.cs
+│   │   └── SignalRLoggerProvider.cs
 │   ├── Middleware
 │   │   ├── ErrorHandlingMiddleware.cs
 │   │   └── RequestLoggingMiddleware.cs
+│   ├── Migrations
+│   │   ├── 20250901192650_AddImageSupport.cs
+│   │   ├── 20250901192650_AddImageSupport.Designer.cs
+│   │   ├── 20250902155336_v1.cs
+│   │   ├── 20250902155336_v1.Designer.cs
+│   │   └── ApplicationDbContextModelSnapshot.cs
 │   ├── Models
 │   │   ├── ApplicationSettings.cs
 │   │   ├── ClassificationModels.cs
@@ -35,6 +50,7 @@
 │   │   ├── INotificationService.cs
 │   │   ├── IOverrideService.cs
 │   │   ├── ISystemHealthService.cs
+│   │   ├── LogService.cs
 │   │   ├── NotificationService.cs
 │   │   ├── OverrideService.cs
 │   │   ├── SystemHealthCheck.cs
@@ -45,8 +61,6 @@
 │   ├── development
 │   └── production
 ├── data
-│   ├── smartbin.db-shm
-│   └── smartbin.db-wal
 ├── docker
 │   └── dockerfiles
 │       ├── Dockerfile.backend
@@ -54,6 +68,21 @@
 │       └── Dockerfile.python
 ├── docker-compose.dev.yml
 ├── docker-compose.yml
+├── docs
+│   ├── architecture_ar.dot
+│   ├── architecture_ar.pdf
+│   ├── architecture.dot
+│   ├── architecture.pdf
+│   ├── architecture.png
+│   ├── s.aux
+│   ├── s.out
+│   ├── spec_en.tex
+│   ├── spec_v1_ar.pdf
+│   ├── spec_v1_en.pdf
+│   ├── s.tex
+│   ├── s.toc
+│   ├── system-integration-arch.dot
+│   └── system-integration-arch.pdf
 ├── frontend
 │   ├── Dockerfile.dev
 │   ├── nginx.conf
@@ -79,10 +108,19 @@
 │   │   │   │   └── Dashboard.tsx
 │   │   │   ├── Layout
 │   │   │   │   └── Layout.tsx
+│   │   │   ├── LiveClassification
+│   │   │   │   └── LiveClassification.tsx
+│   │   │   ├── Logs
+│   │   │   │   ├── LogsPage.tsx
+│   │   │   │   └── LogViewer.tsx
 │   │   │   └── System
 │   │   │       └── SystemHealth.tsx
 │   │   ├── hooks
+│   │   │   ├── index.ts
 │   │   │   ├── useApi.ts
+│   │   │   ├── useClassificationHistory.ts
+│   │   │   ├── useDashboard.ts
+│   │   │   ├── useLiveClassification.ts
 │   │   │   ├── useSignalR.ts
 │   │   │   └── useSystemHealth.ts
 │   │   ├── index.css
@@ -112,7 +150,8 @@
 │   ├── services
 │   │   ├── arduino_service.py
 │   │   ├── cnn_service.py
-│   │   └── hub_client.py
+│   │   ├── hub_client.py
+│   │   └── SignalRLogHandler.py
 │   ├── setup.cfg
 │   ├── setup.py
 │   ├── src
@@ -137,12 +176,14 @@
 │       ├── test_knowledge_engine.py
 │       ├── test_models.py
 │       └── test_resolver.py
+├── Readme.md
 ├── requirements-integrated.txt
 ├── requirements-test.txt
 ├── scripts
 │   ├── deployment
+│   ├── setup_dev_environment.sh
 │   ├── start-mvp.sh
 │   └── stop-mvp.sh
 └── tree.txt
 
-41 directories, 105 files
+47 directories, 140 files

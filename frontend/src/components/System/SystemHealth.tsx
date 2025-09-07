@@ -42,7 +42,7 @@ const SystemHealth: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   const {
-    metrics,
+    health,
     alerts,
     loading,
     error,
@@ -87,7 +87,7 @@ const SystemHealth: React.FC = () => {
     }
   };
 
-  if (loading && !metrics) {
+  if (loading && !health) {
     return (
       <Box sx={{ p: 3, backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
         <Typography variant="h4" gutterBottom>
@@ -102,7 +102,7 @@ const SystemHealth: React.FC = () => {
   }
 
   return (
-    <Box sx={{ p: 3, backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
+    <Box sx={{ p: 0, backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
       {/* Header */}
       <Paper sx={{ p: 3, mb: 3, backgroundColor: 'white' }} elevation={1}>
         <Box display="flex" alignItems="center" justifyContent="space-between">
@@ -215,7 +215,7 @@ const SystemHealth: React.FC = () => {
       )}
 
       {/* Component Health Status */}
-      {metrics && (
+      {health && (
         <Paper sx={{ p: 3, mb: 3, backgroundColor: 'white' }} elevation={1}>
           <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
             Component Health Status
@@ -224,41 +224,41 @@ const SystemHealth: React.FC = () => {
             {[
               {
                 name: 'CNN Service',
-                healthy: metrics.cnnServiceHealthy,
+                healthy: health.cnnServiceHealthy,
                 icon: <SmartToy />,
                 details: {
-                  'Service Status': metrics.cnnServiceHealthy ? 'Running' : 'Offline',
-                  'Processing Speed': `${metrics.avgProcessingTimeMs.toFixed(0)}ms`,
-                  'Items Processed': metrics.totalItemsProcessed.toString(),
-                  'Accuracy Rate': `${(metrics.accuracyRate * 100).toFixed(1)}%`,
+                  'Service Status': health.cnnServiceHealthy ? 'Running' : 'Offline',
+                  'Processing Speed': `${health.avgProcessingTimeMs.toFixed(0)}ms`,
+                  'Items Processed': health.totalItemsProcessed.toString(),
+                  'Accuracy Rate': `${(health.accuracyRate * 100).toFixed(1)}%`,
                 }
               },
               {
                 name: 'Expert System',
-                healthy: metrics.expertSystemHealthy,
+                healthy: health.expertSystemHealthy,
                 icon: <SmartToy />,
                 details: {
-                  'System Status': metrics.expertSystemHealthy ? 'Active' : 'Inactive',
-                  'Integration': metrics.expertSystemHealthy ? 'Connected' : 'Disconnected',
-                  'Last Update': new Date(metrics.timestamp).toLocaleString(),
+                  'System Status': health.expertSystemHealthy ? 'Active' : 'Inactive',
+                  'Integration': health.expertSystemHealthy ? 'Connected' : 'Disconnected',
+                  'Last Update': new Date(health.timestamp).toLocaleString(),
                 }
               },
               {
                 name: 'Camera System',
-                healthy: metrics.cameraConnected,
+                healthy: health.cameraConnected,
                 icon: <Camera />,
                 details: {
-                  'Connection': metrics.cameraConnected ? 'Connected' : 'Disconnected',
-                  'Status': metrics.cameraConnected ? 'Operational' : 'No Signal',
+                  'Connection': health.cameraConnected ? 'Connected' : 'Disconnected',
+                  'Status': health.cameraConnected ? 'Operational' : 'No Signal',
                 }
               },
               {
                 name: 'Sensor Array',
-                healthy: metrics.arduinoConnected,
+                healthy: health.arduinoConnected,
                 icon: <Sensors />,
                 details: {
-                  'Connection': metrics.arduinoConnected ? 'Connected' : 'Disconnected',
-                  'Status': metrics.arduinoConnected ? 'All sensors active' : 'No data',
+                  'Connection': health.arduinoConnected ? 'Connected' : 'Disconnected',
+                  'Status': health.arduinoConnected ? 'All sensors active' : 'No data',
                 }
               },
             ].map((component, index) => (
@@ -304,8 +304,30 @@ const SystemHealth: React.FC = () => {
         </Paper>
       )}
 
+      {health?.additionalInfo && (
+        <Paper sx={{ p: 3, mb: 3 }} elevation={1}>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
+            System Details
+          </Typography>
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableBody>
+                {Object.entries(health.additionalInfo).map(([key, value]) => (
+                  <TableRow key={key}>
+                    <TableCell sx={{ fontWeight: 'bold', textTransform: 'capitalize' }}>
+                      {key.replace(/([A-Z])/g, ' $1').trim()}
+                    </TableCell>
+                    <TableCell>{String(value)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
+
       {/* Performance Summary */}
-      {metrics && (
+      {health && (
         <Paper sx={{ p: 3, mb: 3, backgroundColor: 'white' }} elevation={1}>
           <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
             Performance Summary
@@ -317,7 +339,7 @@ const SystemHealth: React.FC = () => {
                   <Box display="flex" alignItems="center" justifyContent="center" mb={1}>
                     <Computer color="primary" sx={{ mr: 1 }} />
                     <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                      {metrics.systemUptime.toFixed(1)}h
+                      {health.systemUptime.toFixed(1)}h
                     </Typography>
                   </Box>
                   <Typography variant="body2" color="text.secondary">
@@ -332,7 +354,7 @@ const SystemHealth: React.FC = () => {
                   <Box display="flex" alignItems="center" justifyContent="center" mb={1}>
                     <Speed color="primary" sx={{ mr: 1 }} />
                     <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                      {metrics.avgProcessingTimeMs.toFixed(0)}ms
+                      {health.avgProcessingTimeMs.toFixed(0)}ms
                     </Typography>
                   </Box>
                   <Typography variant="body2" color="text.secondary">
@@ -347,7 +369,7 @@ const SystemHealth: React.FC = () => {
                   <Box display="flex" alignItems="center" justifyContent="center" mb={1}>
                     <CheckCircle color="success" sx={{ mr: 1 }} />
                     <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                      {(metrics.accuracyRate * 100).toFixed(1)}%
+                      {(health.accuracyRate * 100).toFixed(1)}%
                     </Typography>
                   </Box>
                   <Typography variant="body2" color="text.secondary">
@@ -362,7 +384,7 @@ const SystemHealth: React.FC = () => {
                   <Box display="flex" alignItems="center" justifyContent="center" mb={1}>
                     <Info color="info" sx={{ mr: 1 }} />
                     <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                      {metrics.totalItemsProcessed.toLocaleString()}
+                      {health.totalItemsProcessed.toLocaleString()}
                     </Typography>
                   </Box>
                   <Typography variant="body2" color="text.secondary">
@@ -376,7 +398,7 @@ const SystemHealth: React.FC = () => {
       )}
 
       {/* System Resource Usage */}
-      {metrics && (
+      {health && (
         <Paper sx={{ p: 3, mb: 3, backgroundColor: 'white' }} elevation={1}>
           <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
             System Resource Usage
@@ -392,15 +414,15 @@ const SystemHealth: React.FC = () => {
                     </Typography>
                   </Box>
                   <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
-                    {(metrics.memoryUsageMB / 1024).toFixed(1)} GB
+                    {(health.memoryUsageMB / 1024).toFixed(1)} GB
                   </Typography>
                   <LinearProgress 
                     variant="determinate" 
-                    value={Math.min((metrics.memoryUsageMB / 16384) * 100, 100)} // Assuming 16GB max
+                    value={Math.min((health.memoryUsageMB / 16384) * 100, 100)} // Assuming 16GB max
                     sx={{ mb: 1, height: 8 }}
                   />
                   <Typography variant="body2" color="text.secondary">
-                    {metrics.memoryUsageMB.toFixed(0)} MB used of available memory
+                    {health.memoryUsageMB.toFixed(0)} MB used of available memory
                   </Typography>
                 </CardContent>
               </Card>
@@ -415,13 +437,13 @@ const SystemHealth: React.FC = () => {
                     </Typography>
                   </Box>
                   <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
-                    {metrics.cpuUsagePercent.toFixed(1)}%
+                    {health.cpuUsagePercent.toFixed(1)}%
                   </Typography>
                   <LinearProgress 
                     variant="determinate" 
-                    value={Math.min(metrics.cpuUsagePercent, 100)}
+                    value={Math.min(health.cpuUsagePercent, 100)}
                     sx={{ mb: 1, height: 8 }}
-                    color={metrics.cpuUsagePercent > 80 ? 'error' : 'primary'}
+                    color={health.cpuUsagePercent > 80 ? 'error' : 'primary'}
                   />
                   <Typography variant="body2" color="text.secondary">
                     Current CPU utilization
@@ -434,7 +456,7 @@ const SystemHealth: React.FC = () => {
       )}
 
       {/* Classification Counts */}
-      {metrics && Object.keys(metrics.classificationCounts).length > 0 && (
+      {health && Object.keys(health.classificationCounts).length > 0 && (
         <Paper sx={{ p: 3, backgroundColor: 'white' }} elevation={1}>
           <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
             Recent Classification Activity
@@ -449,8 +471,8 @@ const SystemHealth: React.FC = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {Object.entries(metrics.classificationCounts).map(([category, count]) => {
-                  const total = Object.values(metrics.classificationCounts).reduce((a, b) => a + b, 0);
+                {Object.entries(health.classificationCounts).map(([category, count]) => {
+                  const total = Object.values(health.classificationCounts).reduce((a, b) => a + b, 0);
                   const percentage = total > 0 ? (count / total) * 100 : 0;
                   
                   return (

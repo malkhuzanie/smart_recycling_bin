@@ -91,13 +91,12 @@ namespace SmartRecyclingBin.Models
         public double CpuUsagePercent { get; set; }
     }
 
-    // 🔧 FIXED: Match the existing properties from your project
     public class ClassificationStatistics
     {
         public int TotalItems { get; set; }
         public double AccuracyRate { get; set; }
         public double AvgProcessingTime { get; set; }
-        public Dictionary<string, int> ClassificationBreakdown { get; set; } = new(); // ✅ This property exists
+        public Dictionary<string, int> ClassificationBreakdown { get; set; } = new();
         public double OverrideRate { get; set; }
         public int ItemsToday { get; set; }
         public int ItemsThisWeek { get; set; }

@@ -174,6 +174,7 @@ const theme = createTheme({
         root: {
           boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
           borderBottom: '1px solid rgba(0,0,0,0.08)',
+          borderRadius: 0
         },
       },
     },
@@ -182,6 +183,7 @@ const theme = createTheme({
         paper: {
           borderRight: '1px solid rgba(0,0,0,0.08)',
           boxShadow: '2px 0 12px rgba(0,0,0,0.08)',
+          borderRadius: 0
         },
       },
     },

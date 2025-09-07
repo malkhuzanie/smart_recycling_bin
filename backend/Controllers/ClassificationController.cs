@@ -65,6 +65,25 @@ namespace SmartRecyclingBin.Controllers
         }
 
         /// <summary>
+        /// Get statistics about image storage
+        /// </summary>
+        /// <returns>Image storage statistics</returns>
+        [HttpGet("images/stats")] 
+        public async Task<ActionResult<ImageStorageStats>> GetImageStorageStats()
+        {
+            try
+            {
+                var stats = await _classificationService.GetImageStorageStatsAsync();
+                return Ok(stats);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving image storage stats");
+                return StatusCode(500, new { error = "Internal server error" });
+            }
+        }
+        
+        /// <summary>
         /// Get recent classification results with pagination and filtering
         /// </summary>
         /// <param name="page">Page number (1-based)</param>
