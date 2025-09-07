@@ -15,6 +15,10 @@ import base64
 from PIL import Image
 import io
 
+from tensorflow.keras.models import load_model
+
+from tensorflow.keras.applications.resnet50 import preprocess_input
+
 # --- 1. Import your new YOLO service and the Hub Client ---
 from .yolo_service import detect_relevant_objects, model as yolo_model
 from .hub_client import SignalRHubClient
@@ -34,10 +38,34 @@ class CNNService:
     """Orchestrates the visual detection (YOLO) and expert system logic."""
     
     def __init__(self, backend_hub_url: str):
+
+        self.logger = logging.getLogger("CNNService")
+
         self.model = yolo_model
+
+         # --- START of REVISED CODE for LOCAL PATH ---
+        self.custom_model = None # Initialize as None
+        
+        # Construct the path to the model file relative to this script's location
+        # Path(__file__) is the path to cnn_service.py
+        # .parent.parent gives us the 'python-services' directory
+        # .parent again gives us the project root
+        project_root = Path(__file__).parent.parent.parent
+        custom_model_path = project_root / "models" / "trash_classifier_v3_93_accuracy_4mp.keras"
+
+        try:
+            # os.path.exists() can work directly with Path objects
+            if os.path.exists(custom_model_path):
+                self.custom_model = load_model(custom_model_path)
+                self.logger.info(f"Successfully loaded custom classifier from {custom_model_path}")
+            else:
+                self.logger.error(f"Custom classifier file not found at {custom_model_path}. Fallback will be disabled.")
+        except Exception as e:
+            self.logger.error(f"Error loading custom classifier: {e}")
+        # --- END of REVISED CODE for LOCAL PATH ---
+
         self.camera = None
         self.hub_client = SignalRHubClient(backend_hub_url, "ClassificationHub")
-        self.logger = logging.getLogger("CNNService")
         
         self.expert_system = SmartBinKnowledgeEngine() if SmartBinKnowledgeEngine else None
         
@@ -101,7 +129,7 @@ class CNNService:
             if result:
                 await self.send_classification_result_with_image(result)
             else:
-                self.logger.error(f"❌ Classification pipeline failed for {item_data.get('detection_id')}")
+                self.logger.error(f" Classification pipeline failed for {item_data.get('detection_id')}")
             
             self.is_processing = False
             self.processing_queue.task_done()
@@ -122,6 +150,39 @@ class CNNService:
             # Step 2: Get final decision from Expert System
             expert_result = self.run_expert_system_integration(yolo_result, sensor_data)
             
+            if expert_result.get("final_classification") == "unknown" and self.custom_model is not None:
+                self.logger.warning("Primary pipeline resulted in 'unknown'. Activating fallback classifier.")
+                
+                try:
+                    # 1. Resize the original image
+                    resized_image = cv2.resize(image_array, (384, 384))
+                    
+                    # 2. Add the 'batch' dimension
+                    img_array_expanded = np.expand_dims(resized_image, axis=0)
+                    
+                    # 3. Apply the official ResNet50 preprocessing
+                    preprocessed_image = preprocess_input(img_array_expanded)
+                    
+                    # 4. Predict using your custom model
+                    custom_predictions = self.custom_model.predict(preprocessed_image)
+                    
+                    # 5. Interpret the result
+                    class_names = ['cardboard', 'glass', 'metal', 'paper', 'plastic']
+                    predicted_index = np.argmax(custom_predictions[0])
+                    confidence = float(np.max(custom_predictions[0]))
+                    predicted_class = class_names[predicted_index]
+
+                    # 6. Overwrite the expert_result
+                    self.logger.info(f"Fallback classifier predicted: '{predicted_class}' with confidence {confidence:.2f}")
+                    expert_result = {
+                        "final_classification": predicted_class,
+                        "confidence": confidence,
+                        "disposal_location": self.get_disposal_location(predicted_class),
+                        "reasoning": f"object detected visually."
+                    }
+                except Exception as e:
+                    self.logger.error(f"Error during fallback classification: {e}")
+
             processing_time = (datetime.now() - start_time).total_seconds() * 1000
             
             # Step 3: Compile the full result to send to backend
@@ -271,7 +332,7 @@ class CNNService:
             if log_result.get("image_data"):
                 log_result["image_data"]["image_base64"] = f"<base64 data of {log_result['image_data']['size_bytes']} bytes>"
             
-            self.logger.info(f"📤 Sending final result to backend for detection ID: {result['detection_id']}")
+            self.logger.info(f" Sending final result to backend for detection ID: {result['detection_id']}")
             await self.hub_client.send_message("SendClassificationResult", json.dumps(result))
         except Exception as e:
             self.logger.error(f"Error sending classification result: {e}", exc_info=True)
@@ -294,19 +355,19 @@ class CNNService:
         if self.camera:
             self.camera.release()
         await self.hub_client.disconnect()
-        self.logger.info("🧹 CNN service cleanup complete.")
+        self.logger.info(" CNN service cleanup complete.")
 
     # --- PASTE THESE THREE METHODS INTO YOUR CNNService CLASS ---
 
     async def initialize_camera(self):
         """Initializes the camera for image capture."""
         try:
-            camera_index = int(os.getenv('CAMERA_INDEX', '1'))
+            camera_index = int(os.getenv('CAMERA_INDEX', '0'))
             self.logger.info(f"Initializing camera index {camera_index}...")
             
             self.camera = cv2.VideoCapture(camera_index)
             
-            if not self.camera.isOpened():
+            if not self.camera.isOpened(): 
                 self.logger.warning("Failed to open camera, will use mock data.")
                 self.camera = None
                 return
@@ -345,4 +406,23 @@ class CNNService:
         if self.camera:
             self.camera.release()
         await self.hub_client.disconnect()
-        self.logger.info("🧹 CNN service cleanup complete.")
+        self.logger.info(" CNN service cleanup complete.")
+    
+
+    def get_disposal_location(self, classification: str) -> str:
+        """
+        Maps a final classification label to its designated disposal bin.
+        """
+        # This dictionary should contain all your possible FINAL classes
+        disposal_map = {
+            'plastic': 'Plastic Recycling Bin',
+            'glass': 'Glass Recycling Bin',
+            'metal': 'Metal Recycling Bin',
+            'paper': 'Paper Recycling Bin',
+            'cardboard': 'Cardboard Recycling Bin', # Make sure you have this if your model predicts it
+            'organic': 'Organic Waste / Compost Bin',
+            'unknown': 'Manual Inspection Bin',
+            # Add mappings for any other WasteCategory enums you have
+        }
+        # .lower() makes the lookup case-insensitive and safer
+        return disposal_map.get(classification.lower(), 'General Waste Bin')

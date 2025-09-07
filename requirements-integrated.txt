@@ -22,3 +22,5 @@ pydantic>=2.0.0
 
 # For Yolo model
 ultralytics>=8.0
+
+tensorflow>=2.12.0
